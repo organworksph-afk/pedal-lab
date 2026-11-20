@@ -1,0 +1,2079 @@
+<!DOCTYPE html>
+<html lang="en" class="scroll-smooth">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OrganWorks Pedal Lab</title>
+<meta name="description" content="OrganWorks PH Pedal Lab: test MIDI organ pedals with real pipe sound, manage customers, generate quotations and invoices, and program the ESP32-S3 pedalboard controller.">
+<meta name="theme-color" content="#111a1c">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+if (window.tailwind) tailwind.config = {
+  theme: {
+    extend: {
+      colors: {
+        ink: '#0b1214', panel: '#111a1c', panel2: '#162225', line: '#223235',
+        fog: '#e5eeeb', mute: '#8ea6a1', mint: '#5fd3b5', mintd: '#2f9e84', amber: '#f2b84b', rose: '#f07a6a'
+      },
+      fontFamily: {
+        display: ['Fraunces', 'Georgia', 'serif'],
+        sans: ['Inter', 'system-ui', 'sans-serif'],
+        mono: ['"JetBrains Mono"', 'ui-monospace', 'monospace']
+      }
+    }
+  }
+}
+</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<style>
+  :root { color-scheme: dark; }
+  body { background: radial-gradient(1200px 600px at 80% -10%, rgba(95,211,181,.08), transparent 60%), #0b1214; }
+  .card { background: #111a1c; border: 1px solid #223235; border-radius: 1rem; }
+  .field { width: 100%; background: #0b1214; border: 1px solid #223235; border-radius: .6rem; padding: .55rem .75rem; color: #e5eeeb; font-size: .875rem; transition: border-color .15s, box-shadow .15s; }
+  .field:focus { outline: none; border-color: #5fd3b5; box-shadow: 0 0 0 3px rgba(95,211,181,.15); }
+  .field.invalid { border-color: #f07a6a; box-shadow: 0 0 0 3px rgba(240,122,106,.15); }
+  .lbl { display:block; font-size: .72rem; letter-spacing: .06em; text-transform: uppercase; color: #8ea6a1; margin-bottom: .35rem; font-weight: 600; }
+  .btn { display:inline-flex; align-items:center; gap:.45rem; border-radius:.6rem; padding:.55rem .9rem; font-size:.85rem; font-weight:600; transition: transform .12s, background .15s, border-color .15s, opacity .15s; border:1px solid transparent; white-space:nowrap; }
+  .btn:active { transform: translateY(1px); }
+  .btn:disabled { opacity:.45; cursor:not-allowed; }
+  .btn-primary { background:#5fd3b5; color:#06201a; }
+  .btn-primary:hover:not(:disabled) { background:#7fe0c6; }
+  .btn-ghost { background:#162225; border-color:#223235; color:#e5eeeb; }
+  .btn-ghost:hover:not(:disabled) { border-color:#3a5256; }
+  .btn-danger { background:transparent; border-color:#5a2c27; color:#f07a6a; }
+  .btn-danger:hover { background:rgba(240,122,106,.08); }
+  .pill { display:inline-flex; align-items:center; gap:.35rem; padding:.2rem .6rem; border-radius:999px; font-size:.72rem; font-weight:600; border:1px solid #223235; background:#0b1214; }
+  .dot { width:.5rem; height:.5rem; border-radius:999px; display:inline-block; }
+  .lift { transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease; }
+  .lift:hover { transform: translateY(-2px); border-color:#33494d; box-shadow: 0 12px 30px -12px rgba(0,0,0,.6); }
+  .readout { font-family: 'JetBrains Mono', monospace; }
+  /* Pedalboard */
+  .pboard { position:relative; height: 210px; user-select:none; touch-action:none; }
+  .pnat { position:absolute; top:0; bottom:0; background: linear-gradient(#e9e1cf, #cfc5ae); border:1px solid #6b6455; border-radius: 0 0 6px 6px; cursor:pointer; transition: background .08s, transform .08s; }
+  .pnat.on { background: linear-gradient(#7fe0c6, #3fb497); transform: translateY(3px); }
+  .psharp { position:absolute; top:0; height: 58%; background: linear-gradient(#2a2622, #0f0d0b); border:1px solid #000; border-radius: 0 0 5px 5px; cursor:pointer; z-index:2; box-shadow: 0 4px 0 #000; transition: background .08s, transform .08s; }
+  .psharp.on { background: linear-gradient(#5fd3b5, #2f9e84); transform: translateY(3px); box-shadow: 0 1px 0 #000; }
+  .pnum { position:absolute; bottom:6px; left:0; right:0; text-align:center; font: 600 10px 'JetBrains Mono', monospace; color:#4d473c; pointer-events:none; }
+  .psharp .pnum { color:#9c9384; bottom:4px; }
+  .pnat.tested::after, .psharp.tested::after { content:''; position:absolute; top:6px; left:50%; width:6px; height:6px; margin-left:-3px; border-radius:99px; background:#2f9e84; }
+  /* Stop tabs */
+  .stop { position:relative; padding:.7rem .6rem .6rem; border-radius:.55rem; background:#efe6d2; color:#3b2f1f; font-family:'Fraunces',serif; font-weight:600; font-size:.85rem; text-align:center; border:1px solid #9b8a6b; cursor:pointer; transition: all .15s; line-height:1.15; }
+  .stop small { display:block; font-family:'JetBrains Mono',monospace; font-size:.65rem; font-weight:500; color:#7a6a50; margin-top:.15rem; }
+  .stop[aria-pressed="true"] { background: #f2b84b; border-color:#f2b84b; color:#2a1c05; box-shadow: 0 0 0 3px rgba(242,184,75,.18), 0 0 24px rgba(242,184,75,.35); }
+  .stop[aria-pressed="true"] small { color:#5b3f0b; }
+  /* Tables */
+  .tbl th { text-align:left; font-size:.7rem; letter-spacing:.06em; text-transform:uppercase; color:#8ea6a1; font-weight:600; padding:.55rem .6rem; border-bottom:1px solid #223235; position:sticky; top:0; background:#111a1c; }
+  .tbl td { padding:.5rem .6rem; border-bottom:1px solid #1a2629; font-size:.84rem; vertical-align:middle; }
+  .tbl tr.hit td { background: rgba(95,211,181,.10); }
+  .scrolly::-webkit-scrollbar { width:8px; height:8px; } .scrolly::-webkit-scrollbar-thumb { background:#223235; border-radius:8px; }
+  /* Code */
+  pre.code { background:#070c0d; border:1px solid #223235; border-radius:.8rem; padding:1rem; overflow:auto; max-height:420px; font: 12.5px/1.55 'JetBrains Mono', monospace; color:#cfe3de; }
+  /* Modal */
+  .modal { position:fixed; inset:0; z-index:60; display:none; align-items:flex-start; justify-content:center; padding: 4vh 1rem; background: rgba(3,8,9,.72); backdrop-filter: blur(6px); overflow-y:auto; }
+  .modal.open { display:flex; }
+  .modal-panel { width:100%; max-width: 720px; animation: pop .18s ease-out; }
+  @keyframes pop { from { opacity:0; transform: translateY(8px) scale(.99); } to { opacity:1; transform:none; } }
+  /* Toast */
+  #toasts { position:fixed; right:1rem; bottom:1rem; z-index:80; display:flex; flex-direction:column; gap:.5rem; }
+  .toast { background:#162225; border:1px solid #2f4a4d; color:#e5eeeb; padding:.7rem 1rem; border-radius:.7rem; font-size:.85rem; box-shadow:0 10px 30px rgba(0,0,0,.4); animation: pop .2s ease-out; max-width: 360px; }
+  /* A4 paper preview */
+  .paper-wrap { background:#0a1011; border:1px solid #223235; border-radius:1rem; padding:1rem; overflow:auto; }
+  #paper { width: 794px; min-height: 1123px; background:#fff; color:#1d2422; margin:0 auto; padding: 56px 60px; font-family: Inter, Arial, sans-serif; font-size: 12px; line-height:1.5; box-shadow: 0 20px 50px rgba(0,0,0,.5); transform-origin: top left; }
+  #paper h1 { font-family: Fraunces, Georgia, serif; }
+  #paper table { width:100%; border-collapse: collapse; }
+  #paper th { background:#111a1c; color:#fff; font-size:10.5px; text-transform:uppercase; letter-spacing:.05em; padding:7px 8px; text-align:left; }
+  #paper td { padding:7px 8px; border-bottom:1px solid #e3e8e6; vertical-align:top; }
+  #paper .sec { font-size:10.5px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:#2f9e84; margin: 20px 0 6px; }
+  .nav-link { color:#8ea6a1; font-size:.85rem; font-weight:500; padding:.4rem .6rem; border-radius:.5rem; transition: color .15s, background .15s; }
+  .nav-link:hover, .nav-link.active { color:#e5eeeb; background:#162225; }
+  @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation:none!important; transition:none!important; scroll-behavior:auto!important; } }
+</style>
+</head>
+<body class="font-sans text-fog antialiased">
+
+<!-- ================= NAV ================= -->
+<header class="sticky top-0 z-50 border-b border-line/80 bg-ink/70 backdrop-blur-xl">
+  <div class="mx-auto flex max-w-7xl items-center gap-4 px-4 py-3 sm:px-6">
+    <a href="#top" class="flex items-center gap-2.5 shrink-0" aria-label="OrganWorks Pedal Lab home">
+      <svg width="30" height="30" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+        <rect width="32" height="32" rx="8" fill="#5fd3b5"/>
+        <g fill="#06201a"><rect x="6" y="12" width="3" height="14" rx="1.5"/><rect x="10.5" y="8" width="3" height="18" rx="1.5"/><rect x="15" y="5" width="3" height="21" rx="1.5"/><rect x="19.5" y="8" width="3" height="18" rx="1.5"/><rect x="24" y="12" width="3" height="14" rx="1.5"/></g>
+      </svg>
+      <span class="leading-none"><span class="block text-[13px] font-bold tracking-[.14em]">ORGANWORKS</span><span class="block text-[10px] font-semibold tracking-[.32em] text-mint">PEDAL LAB</span></span>
+    </a>
+    <nav class="ml-4 hidden items-center gap-1 lg:flex" aria-label="Sections">
+      <a class="nav-link" href="#tester">Pedal tester</a>
+      <a class="nav-link" href="#customers">Customers</a>
+      <a class="nav-link" href="#studio">Quotes &amp; invoices</a>
+      <a class="nav-link" href="#books">Accounting</a>
+      <a class="nav-link" href="#checker">Arduino checker</a>
+      <a class="nav-link" href="#firmware">Firmware</a>
+      <a class="nav-link" href="#guide">ESP32-S3 guide</a>
+    </nav>
+    <div class="ml-auto hidden items-center gap-2 md:flex">
+      <span class="pill"><span class="dot bg-mint"></span>32 pedals</span>
+      <span class="pill readout">USB CH 1</span>
+      <span class="pill readout">DIN CH 3</span>
+      <span class="pill" id="storeBadge" title="Where customer data is stored"><span class="dot bg-amber"></span>This browser</span>
+    </div>
+    <button id="menuBtn" class="ml-auto rounded-lg border border-line p-2 lg:hidden md:ml-2" aria-label="Open menu" aria-expanded="false" aria-controls="mobileNav">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+    </button>
+  </div>
+  <nav id="mobileNav" class="hidden border-t border-line px-4 pb-4 pt-2 lg:hidden" aria-label="Sections (mobile)">
+    <div class="grid gap-1">
+      <a class="nav-link" href="#tester">Pedal tester</a>
+      <a class="nav-link" href="#customers">Customers</a>
+      <a class="nav-link" href="#studio">Quotes &amp; invoices</a>
+      <a class="nav-link" href="#books">Accounting</a>
+      <a class="nav-link" href="#checker">Arduino checker</a>
+      <a class="nav-link" href="#firmware">Firmware</a>
+      <a class="nav-link" href="#guide">ESP32-S3 guide</a>
+    </div>
+  </nav>
+</header>
+
+<main id="top" class="mx-auto max-w-7xl px-4 sm:px-6">
+
+<!-- ================= HERO ================= -->
+<section class="pt-10 pb-6 sm:pt-14">
+  <p class="text-xs font-semibold uppercase tracking-[.25em] text-mint">OrganWorks PH · Workshop tools</p>
+  <h1 class="mt-3 max-w-3xl font-display text-4xl font-semibold leading-[1.08] sm:text-5xl">Test the pedals, quote the job, keep every customer in one place.</h1>
+  <p class="mt-4 max-w-2xl text-mute">A bench tool for 32-note ESP32-S3 MIDI pedalboards. Pedals play real pipe samples from the free GrandOrgue demo organ, so you hear exactly what the player will hear.</p>
+  <div class="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
+    <div class="card px-4 py-3"><div class="readout text-2xl font-semibold">36–67</div><div class="text-xs text-mute">MIDI notes, C2 to G4</div></div>
+    <div class="card px-4 py-3"><div class="readout text-2xl font-semibold">2 × MCP23017</div><div class="text-xs text-mute">I²C at 0x20 and 0x21</div></div>
+    <div class="card px-4 py-3"><div class="readout text-2xl font-semibold" id="heroCustomers">0</div><div class="text-xs text-mute">customers in the database</div></div>
+    <div class="card px-4 py-3"><div class="readout text-2xl font-semibold" id="heroPipeline">₱0</div><div class="text-xs text-mute">open quotation value</div></div>
+  </div>
+</section>
+
+<!-- ================= 1. PEDAL TESTER ================= -->
+<section id="tester" class="scroll-mt-24 py-10">
+  <div class="mb-5 flex flex-wrap items-end justify-between gap-4">
+    <div>
+      <p class="readout text-xs text-mint">01 · PEDAL TESTER</p>
+      <h2 class="mt-1 font-display text-3xl font-semibold">Press a pedal. See exactly what it sends.</h2>
+    </div>
+    <div class="flex flex-wrap items-center gap-2">
+      <span id="midiStatus" class="pill"><span class="dot bg-rose"></span>Not connected</span>
+      <select id="midiDevice" class="field !w-auto !py-2" aria-label="MIDI input device"><option value="">No device selected</option></select>
+      <button id="midiConnect" class="btn btn-primary">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22v-5M9 8V2M15 8V2M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z"/></svg>
+        Connect MIDI input
+      </button>
+    </div>
+  </div>
+  <p id="midiNote" class="mb-4 hidden rounded-xl border border-amber/30 bg-amber/5 px-4 py-3 text-sm text-amber"></p>
+
+  <div class="grid gap-4 lg:grid-cols-[1fr_340px]">
+    <!-- left: board + readouts -->
+    <div class="card p-4 sm:p-5">
+      <div class="grid grid-cols-2 gap-3 sm:grid-cols-5">
+        <div class="rounded-xl bg-ink px-3 py-2.5"><div class="lbl !mb-1">Last pedal</div><div id="roPedal" class="readout text-xl font-semibold">—</div></div>
+        <div class="rounded-xl bg-ink px-3 py-2.5"><div class="lbl !mb-1">MIDI note</div><div id="roNote" class="readout text-xl font-semibold">—</div></div>
+        <div class="rounded-xl bg-ink px-3 py-2.5"><div class="lbl !mb-1">Channel</div><div id="roCh" class="readout text-xl font-semibold">—</div></div>
+        <div class="rounded-xl bg-ink px-3 py-2.5"><div class="lbl !mb-1">Velocity</div><div id="roVel" class="readout text-xl font-semibold">—</div></div>
+        <div class="col-span-2 rounded-xl bg-ink px-3 py-2.5 sm:col-span-1"><div class="lbl !mb-1">Event</div><div id="roEv" class="readout text-xl font-semibold text-mute">Waiting</div></div>
+      </div>
+
+      <div class="mt-5 overflow-x-auto scrolly pb-2">
+        <div id="pedalboard" class="pboard min-w-[760px]" role="group" aria-label="32-note pedalboard, click or tap to play"></div>
+      </div>
+      <div class="mt-3 flex flex-wrap items-center justify-between gap-3 text-xs text-mute">
+        <span>Click or tap a pedal, or use the keyboard: <kbd class="readout rounded border border-line px-1">Z</kbd> <kbd class="readout rounded border border-line px-1">S</kbd> <kbd class="readout rounded border border-line px-1">X</kbd> … <kbd class="readout rounded border border-line px-1">/</kbd> plays C2–E3.</span>
+        <span><span id="coverage" class="readout text-fog">0/32</span> pedals verified from hardware</span>
+      </div>
+
+      <div class="mt-5 grid gap-4 xl:grid-cols-2">
+        <div>
+          <div class="mb-2 flex items-center justify-between">
+            <h3 class="text-sm font-semibold">32-pedal map</h3>
+            <div class="flex gap-2">
+              <button id="resetCoverage" class="btn btn-ghost !px-2.5 !py-1.5 text-xs">Reset checks</button>
+              <button id="visualTest" class="btn btn-ghost !px-2.5 !py-1.5 text-xs">Run visual test</button>
+            </div>
+          </div>
+          <div class="max-h-72 overflow-auto rounded-xl border border-line scrolly">
+            <table class="tbl w-full"><thead><tr><th>Pedal</th><th>MCP input</th><th>MIDI note</th><th>Name</th><th>Seen</th></tr></thead><tbody id="mapBody"></tbody></table>
+          </div>
+        </div>
+        <div>
+          <div class="mb-2 flex items-center justify-between">
+            <h3 class="text-sm font-semibold">Recent MIDI events <span id="evCount" class="readout ml-1 text-xs text-mute">0 events</span></h3>
+            <button id="clearLog" class="btn btn-ghost !px-2.5 !py-1.5 text-xs">Clear activity</button>
+          </div>
+          <div id="evLog" class="readout h-72 overflow-auto rounded-xl border border-line bg-ink p-3 text-xs leading-relaxed scrolly">
+            <p class="text-mute">Note On / Note Off messages appear here.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- right: sound -->
+    <aside class="card p-4 sm:p-5">
+      <h3 class="text-sm font-semibold">Pedal sound</h3>
+      <p class="mt-1 text-xs text-mute">Pipe samples: GrandOrgue demo organ (recordings by Lars Palo).</p>
+      <div class="mt-4 grid grid-cols-3 gap-1 rounded-xl bg-ink p-1" role="radiogroup" aria-label="Sound type">
+        <button class="soundMode btn !justify-center !px-2 text-xs" data-mode="pipe" role="radio">Pipe organ</button>
+        <button class="soundMode btn !justify-center !px-2 text-xs" data-mode="beep" role="radio">Beep</button>
+        <button class="soundMode btn !justify-center !px-2 text-xs" data-mode="off" role="radio">Off</button>
+      </div>
+      <div id="stopsWrap" class="mt-4">
+        <div class="lbl">Pedal stops</div>
+        <div class="grid grid-cols-2 gap-2" id="stops"></div>
+      </div>
+      <div class="mt-4">
+        <label class="lbl" for="vol">Volume</label>
+        <input id="vol" type="range" min="0" max="100" value="70" class="w-full accent-[#5fd3b5]">
+      </div>
+      <label class="mt-3 flex cursor-pointer items-center justify-between gap-3 text-sm">
+        <span>Church ambience (reverb)</span>
+        <input id="reverb" type="checkbox" class="h-4 w-4 accent-[#5fd3b5]" checked>
+      </label>
+      <label class="mt-3 flex cursor-pointer items-center justify-between gap-3 text-sm">
+        <span>Only listen on channels 1 and 3</span>
+        <input id="chFilter" type="checkbox" class="h-4 w-4 accent-[#5fd3b5]">
+      </label>
+      <div id="sampleStatus" class="mt-4 rounded-xl bg-ink px-3 py-2.5 text-xs text-mute">Samples load the first time you play.</div>
+      <button id="panic" class="btn btn-ghost mt-3 w-full !justify-center text-xs">All notes off</button>
+    </aside>
+  </div>
+</section>
+
+<!-- ================= 2. CUSTOMERS ================= -->
+<section id="customers" class="scroll-mt-24 py-10">
+  <div class="mb-5 flex flex-wrap items-end justify-between gap-4">
+    <div>
+      <p class="readout text-xs text-mint">02 · CUSTOMER DATABASE</p>
+      <h2 class="mt-1 font-display text-3xl font-semibold">Every church, school and home client.</h2>
+      <p id="storeNote" class="mt-1 text-sm text-mute">Saved in this browser.</p>
+    </div>
+    <div class="flex flex-wrap gap-2">
+      <label class="btn btn-ghost cursor-pointer">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
+        Import CSV<input id="csvImport" type="file" accept=".csv,text/csv" class="hidden">
+      </label>
+      <button id="csvExport" class="btn btn-ghost">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+        Export CSV
+      </button>
+      <button id="newCustomer" class="btn btn-primary">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+        New customer
+      </button>
+    </div>
+  </div>
+
+  <div id="migrateBanner" class="mb-4 hidden items-center justify-between gap-3 rounded-xl border border-mint/30 bg-mint/5 px-4 py-3 text-sm">
+    <span id="migrateText"></span>
+    <button id="migrateBtn" class="btn btn-primary !py-1.5 text-xs">Copy to shared database</button>
+  </div>
+
+  <div class="mb-4 grid grid-cols-2 gap-3 md:grid-cols-5" id="crmStats"></div>
+
+  <div class="card p-4 sm:p-5">
+    <div class="flex flex-col gap-3 md:flex-row md:items-center">
+      <div class="relative flex-1">
+        <svg class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-mute" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input id="crmSearch" class="field !pl-9" placeholder="Search name, church, email, phone, city…" aria-label="Search customers">
+      </div>
+      <select id="crmType" class="field md:!w-44" aria-label="Filter by type">
+        <option value="">All types</option><option>Church</option><option>Home</option><option>School</option><option>Dealer</option><option>Other</option>
+      </select>
+      <select id="crmSort" class="field md:!w-48" aria-label="Sort customers">
+        <option value="updated">Recently updated</option><option value="name">Name A–Z</option><option value="value">Highest quote value</option><option value="created">Newest first</option>
+      </select>
+    </div>
+    <div class="mt-3 flex flex-wrap gap-2" id="statusChips" role="group" aria-label="Filter by status"></div>
+
+    <div class="mt-4 overflow-x-auto scrolly">
+      <table class="tbl w-full min-w-[820px]">
+        <thead><tr><th>Customer</th><th>Contact</th><th>Location</th><th>Type</th><th>Status</th><th class="text-right">Latest quote</th><th>Updated</th><th class="text-right">Actions</th></tr></thead>
+        <tbody id="crmBody"></tbody>
+      </table>
+    </div>
+    <div id="crmEmpty" class="hidden py-14 text-center">
+      <div class="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-ink text-mint">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+      </div>
+      <p class="font-semibold" id="crmEmptyTitle">No customers yet</p>
+      <p class="mt-1 text-sm text-mute" id="crmEmptyText">Add your first church or home client, or import a CSV.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ================= 3. QUOTATION & INVOICE STUDIO ================= -->
+<section id="studio" class="scroll-mt-24 py-10">
+  <div class="mb-5">
+    <p class="readout text-xs text-mint">03 · QUOTATION &amp; INVOICE STUDIO</p>
+    <h2 class="mt-1 font-display text-3xl font-semibold">Build a quote, invoice it, file it under the customer.</h2>
+  </div>
+  <div class="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)]">
+    <!-- form -->
+    <div class="space-y-4">
+      <details class="card p-4 sm:p-5" id="bizDetails">
+        <summary class="cursor-pointer text-sm font-semibold"><span class="readout mr-2 text-mint">00</span>Your business details</summary>
+        <div class="mt-4 grid gap-3 sm:grid-cols-2">
+          <div><label class="lbl" for="bizName">Business name</label><input id="bizName" class="field biz" data-k="name"></div>
+          <div><label class="lbl" for="bizTag">Tagline</label><input id="bizTag" class="field biz" data-k="tagline"></div>
+          <div class="sm:col-span-2"><label class="lbl" for="bizAddr">Address</label><input id="bizAddr" class="field biz" data-k="address"></div>
+          <div><label class="lbl" for="bizEmail">Email</label><input id="bizEmail" class="field biz" data-k="email"></div>
+          <div><label class="lbl" for="bizPhone">Phone</label><input id="bizPhone" class="field biz" data-k="phone"></div>
+          <div><label class="lbl" for="bizTin">TIN</label><input id="bizTin" class="field biz" data-k="tin"></div>
+          <div><label class="lbl" for="bizSign">Signatory</label><input id="bizSign" class="field biz" data-k="signatory"></div>
+          <div class="sm:col-span-2"><label class="lbl" for="bizBank">Payment instructions (bank / GCash)</label><textarea id="bizBank" rows="2" class="field biz" data-k="bank"></textarea></div>
+        </div>
+        <button id="saveBiz" class="btn btn-ghost mt-3 text-xs">Save business details</button>
+      </details>
+
+      <div class="card p-4 sm:p-5">
+        <h3 class="text-sm font-semibold"><span class="readout mr-2 text-mint">01</span>Document</h3>
+        <div class="mt-4 grid gap-3 sm:grid-cols-2">
+          <div><label class="lbl" for="docType">Document type</label>
+            <select id="docType" class="field"><option value="quotation">Quotation &amp; Proposal</option><option value="invoice">Invoice</option><option value="proforma">Proforma Invoice</option></select></div>
+          <div><label class="lbl" for="preset">Package preset</label>
+            <select id="preset" class="field"><option value="church">Church Sanctuary VPO</option><option value="home">Home Practice VPO</option><option value="pedal">Pedalboard Package</option><option value="blank">Blank / Custom</option></select></div>
+          <div><label class="lbl" for="docNo">Document no.</label><input id="docNo" class="field readout"></div>
+          <div><label class="lbl" for="docDate">Date</label><input id="docDate" type="date" class="field"></div>
+          <div class="sm:col-span-2"><label class="lbl" for="docValid" id="docValidLbl">Valid until</label><input id="docValid" type="date" class="field"></div>
+        </div>
+      </div>
+
+      <div class="card p-4 sm:p-5">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <h3 class="text-sm font-semibold"><span class="readout mr-2 text-mint">02</span>Client</h3>
+          <select id="clientPick" class="field !w-auto !py-1.5 text-xs" aria-label="Fill from customer database"><option value="">Fill from customer database…</option></select>
+        </div>
+        <div class="mt-4 grid gap-3 sm:grid-cols-2">
+          <div><label class="lbl" for="cName">Buyer name</label><input id="cName" class="field cl" data-k="name" placeholder="e.g. St. Joseph Parish"></div>
+          <div><label class="lbl" for="cRep">Authorized representative</label><input id="cRep" class="field cl" data-k="rep"></div>
+          <div class="sm:col-span-2"><label class="lbl" for="cAddr">Address</label><input id="cAddr" class="field cl" data-k="address"></div>
+          <div class="sm:col-span-2"><label class="lbl" for="cContact">Email / phone</label><input id="cContact" class="field cl" data-k="contact"></div>
+        </div>
+        <p id="clientLinked" class="mt-3 hidden text-xs text-mint"></p>
+        <button id="clientToDb" class="btn btn-ghost mt-3 hidden text-xs">Save this client to the database</button>
+      </div>
+
+      <div class="card p-4 sm:p-5">
+        <h3 class="text-sm font-semibold"><span class="readout mr-2 text-mint">03</span>Project</h3>
+        <div class="mt-4 grid gap-3 sm:grid-cols-2">
+          <div><label class="lbl" for="pName">Project name</label><input id="pName" class="field pj" data-k="name"></div>
+          <div><label class="lbl" for="pVenue">Venue / capacity</label><input id="pVenue" class="field pj" data-k="venue"></div>
+          <div class="sm:col-span-2"><label class="lbl" for="pOverview">Project overview</label><textarea id="pOverview" rows="3" class="field tx" data-k="overview"></textarea></div>
+        </div>
+      </div>
+
+      <div class="card p-4 sm:p-5">
+        <h3 class="text-sm font-semibold"><span class="readout mr-2 text-mint">04</span>Components</h3>
+        <div class="mt-4 flex flex-col gap-2 sm:flex-row">
+          <select id="catalogPick" class="field flex-1" aria-label="Product catalog"></select>
+          <div class="flex gap-2">
+            <button id="addSel" class="btn btn-primary text-xs">Add selected</button>
+            <button id="addBlank" class="btn btn-ghost text-xs">Blank line</button>
+            <button id="clearLines" class="btn btn-danger text-xs">Clear all</button>
+          </div>
+        </div>
+        <div class="mt-3 overflow-x-auto scrolly">
+          <table class="tbl w-full min-w-[560px]">
+            <thead><tr><th>Component</th><th class="w-16">Qty</th><th class="w-28">Unit ₱</th><th class="w-24 text-right">Amount</th><th class="w-8"></th></tr></thead>
+            <tbody id="linesBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card p-4 sm:p-5">
+        <h3 class="text-sm font-semibold"><span class="readout mr-2 text-mint">05</span>Totals &amp; terms</h3>
+        <div class="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div><label class="lbl" for="tDisc">Discount ₱</label><input id="tDisc" type="number" min="0" step="0.01" class="field tot" data-k="discount"></div>
+          <div><label class="lbl" for="tTax">Tax %</label><input id="tTax" type="number" min="0" step="0.01" class="field tot" data-k="tax"></div>
+          <div><label class="lbl" for="tDep">Deposit %</label><input id="tDep" type="number" min="0" max="100" step="1" class="field tot" data-k="deposit"></div>
+          <div><label class="lbl" for="tPaid">Already paid ₱</label><input id="tPaid" type="number" min="0" step="0.01" class="field tot" data-k="paid"></div>
+        </div>
+        <div class="mt-3 grid gap-3">
+          <div><label class="lbl" for="tPay">Payment terms</label><textarea id="tPay" rows="2" class="field tx" data-k="payment"></textarea></div>
+          <div><label class="lbl" for="tWar">Warranty &amp; support</label><textarea id="tWar" rows="2" class="field tx" data-k="warranty"></textarea></div>
+          <div><label class="lbl" for="tTerms">Terms &amp; conditions</label><textarea id="tTerms" rows="3" class="field tx" data-k="terms"></textarea></div>
+        </div>
+      </div>
+
+      <div class="card p-4 sm:p-5">
+        <h3 class="text-sm font-semibold"><span class="readout mr-2 text-mint">06</span>Save &amp; export</h3>
+        <div class="mt-4 flex flex-wrap gap-2">
+          <button id="saveRecord" class="btn btn-primary text-xs">Save to customer record</button>
+          <button id="saveDraft" class="btn btn-ghost text-xs">Save draft</button>
+          <button id="dlPdf" class="btn btn-ghost text-xs">Download PDF</button>
+          <button id="dlPng" class="btn btn-ghost text-xs">Download PNG</button>
+          <button id="resetDoc" class="btn btn-danger text-xs">Reset</button>
+        </div>
+        <p class="mt-3 text-xs text-mute">Exports are generated in your browser. Drafts stay in this browser; saved records go to the customer database.</p>
+        <div class="mt-4">
+          <div class="lbl">Saved documents</div>
+          <div id="docList" class="max-h-56 space-y-1.5 overflow-auto scrolly"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- preview -->
+    <div class="xl:sticky xl:top-20 xl:self-start">
+      <div class="mb-2 flex items-center justify-between text-xs text-mute"><span>Live A4 preview</span><span id="previewTotal" class="readout text-fog"></span></div>
+      <div class="paper-wrap scrolly" id="paperWrap"><div id="paperScale"><div id="paper"></div></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= 4. ACCOUNTING ================= -->
+<section id="books" class="scroll-mt-24 py-10">
+  <div class="mb-5 flex flex-wrap items-end justify-between gap-4">
+    <div>
+      <p class="readout text-xs text-mint">04 · ACCOUNTING</p>
+      <h2 class="mt-1 font-display text-3xl font-semibold">Income, expenses and what you're owed.</h2>
+      <p class="mt-1 text-sm text-mute">Record every peso in and out. Payments against invoices reduce the customer's balance automatically.</p>
+    </div>
+    <div class="flex flex-wrap gap-2">
+      <select id="bkPeriod" class="field !w-auto" aria-label="Period">
+        <option value="month">This month</option><option value="lastmonth">Last month</option><option value="quarter">This quarter</option>
+        <option value="year" selected>This year</option><option value="lastyear">Last year</option><option value="all">All time</option>
+      </select>
+      <button id="bkExport" class="btn btn-ghost">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+        Export CSV
+      </button>
+      <button id="bkAddExp" class="btn btn-ghost">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M5 12h14"/></svg>
+        Expense
+      </button>
+      <button id="bkAddInc" class="btn btn-primary">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+        Income
+      </button>
+    </div>
+  </div>
+
+  <div class="mb-4 grid grid-cols-2 gap-3 md:grid-cols-5" id="bkStats"></div>
+
+  <div class="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
+    <div class="card p-4 sm:p-5">
+      <div class="flex items-center justify-between">
+        <h3 class="text-sm font-semibold">Last 12 months</h3>
+        <div class="flex gap-3 text-xs text-mute"><span><span class="dot mr-1" style="background:#5fd3b5"></span>Income</span><span><span class="dot mr-1" style="background:#f07a6a"></span>Expenses</span><span><span class="dot mr-1" style="background:#f2b84b"></span>Net</span></div>
+      </div>
+      <div id="bkChart" class="mt-3"></div>
+    </div>
+    <div class="card p-4 sm:p-5">
+      <h3 class="text-sm font-semibold">Expenses by category <span id="bkCatPeriod" class="text-xs font-normal text-mute"></span></h3>
+      <div id="bkCats" class="mt-3 space-y-2.5"></div>
+    </div>
+  </div>
+
+  <div class="mt-4 grid gap-4 lg:grid-cols-[1fr_1.4fr]">
+    <div class="card p-4 sm:p-5">
+      <h3 class="text-sm font-semibold">Profit &amp; loss <span id="bkPlPeriod" class="text-xs font-normal text-mute"></span></h3>
+      <div id="bkPl" class="mt-3 text-sm"></div>
+    </div>
+    <div class="card p-4 sm:p-5">
+      <div class="flex items-center justify-between">
+        <h3 class="text-sm font-semibold">Unpaid invoices</h3>
+        <span id="bkArTotal" class="readout text-sm text-amber"></span>
+      </div>
+      <div id="bkAr" class="mt-3 max-h-72 space-y-1.5 overflow-auto scrolly"></div>
+    </div>
+  </div>
+
+  <div class="card mt-4 p-4 sm:p-5">
+    <div class="flex flex-col gap-3 md:flex-row md:items-center">
+      <h3 class="text-sm font-semibold md:mr-2">Transactions</h3>
+      <div class="relative flex-1">
+        <svg class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-mute" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input id="bkSearch" class="field !pl-9" placeholder="Search description, customer, reference…" aria-label="Search transactions">
+      </div>
+      <select id="bkType" class="field md:!w-36" aria-label="Filter by type"><option value="">In and out</option><option value="income">Income only</option><option value="expense">Expenses only</option></select>
+      <select id="bkCat" class="field md:!w-52" aria-label="Filter by category"><option value="">All categories</option></select>
+    </div>
+    <div class="mt-4 overflow-x-auto scrolly">
+      <table class="tbl w-full min-w-[820px]">
+        <thead><tr><th>Date</th><th>Description</th><th>Category</th><th>Customer</th><th>Method</th><th class="text-right">Amount</th><th class="text-right">Actions</th></tr></thead>
+        <tbody id="bkBody"></tbody>
+        <tfoot><tr><td colspan="5" class="text-right text-xs text-mute">Shown: <span id="bkShownCount"></span></td><td class="readout text-right font-semibold" id="bkShownTotal"></td><td></td></tr></tfoot>
+      </table>
+    </div>
+    <div id="bkEmpty" class="hidden py-12 text-center">
+      <p class="font-semibold">No transactions in this period</p>
+      <p class="mt-1 text-sm text-mute">Add income or an expense, or record a payment against an unpaid invoice.</p>
+    </div>
+    <p class="mt-4 text-xs text-mute">A day-to-day record for running the business. Your official books of accounts and BIR filings are still kept with your bookkeeper or accountant.</p>
+  </div>
+</section>
+
+<!-- ================= 5. ARDUINO CHECKER ================= -->
+<section id="checker" class="scroll-mt-24 py-10">
+  <div class="mb-5">
+    <p class="readout text-xs text-mint">05 · CHECK ARDUINO OUTPUT</p>
+    <h2 class="mt-1 font-display text-3xl font-semibold">Paste the Serial Monitor or compiler output.</h2>
+  </div>
+  <div class="grid gap-4 lg:grid-cols-2">
+    <div class="card p-4 sm:p-5">
+      <label class="lbl" for="ardOut">Output</label>
+      <textarea id="ardOut" rows="14" class="field readout !text-xs" placeholder="Paste everything from the Serial Monitor or the Arduino IDE output pane…"></textarea>
+      <div class="mt-3 flex flex-wrap gap-2">
+        <button id="ardCheck" class="btn btn-primary text-xs">Check</button>
+        <button id="ardSample" class="btn btn-ghost text-xs">Load successful scan</button>
+        <button id="ardClear" class="btn btn-ghost text-xs">Clear</button>
+      </div>
+    </div>
+    <div class="card p-4 sm:p-5">
+      <div class="flex items-center justify-between">
+        <h3 class="text-sm font-semibold">Result</h3>
+        <button id="ardPrompt" class="btn btn-ghost text-xs">Copy troubleshooting prompt</button>
+      </div>
+      <div id="ardResult" class="mt-3 space-y-2 text-sm"><div class="rounded-xl bg-ink px-4 py-3 text-mute">Ready to check.</div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= 5. FIRMWARE ================= -->
+<section id="firmware" class="scroll-mt-24 py-10">
+  <div class="mb-5">
+    <p class="readout text-xs text-mint">06 · KNOWN-GOOD CODE</p>
+    <h2 class="mt-1 font-display text-3xl font-semibold">Firmware library</h2>
+    <p class="mt-1 text-sm text-mute">Libraries: Adafruit MCP23017 Arduino Library, Adafruit TinyUSB Library, MIDI Library (FortySevenEffects). Board: ESP32S3 Dev Module.</p>
+  </div>
+  <div class="grid gap-4 lg:grid-cols-2">
+    <div class="card p-4 sm:p-5">
+      <div class="flex flex-wrap items-center justify-between gap-2">
+        <div><h3 class="font-semibold">I²C scanner</h3><p class="text-xs text-mute">GPIO8 SDA · GPIO9 SCL · 115200 baud</p></div>
+        <div class="flex gap-2"><button class="btn btn-ghost text-xs" data-copy="code-scan">Copy code</button><button class="btn btn-ghost text-xs" data-dl="code-scan" data-name="i2c_scanner.ino">Download .ino</button></div>
+      </div>
+      <pre class="code mt-3 scrolly"><code id="code-scan"></code></pre>
+    </div>
+    <div class="card p-4 sm:p-5">
+      <div class="flex flex-wrap items-center justify-between gap-2">
+        <div><h3 class="font-semibold">32-pedal firmware</h3><p class="text-xs text-mute">USB MIDI ch 1 + 5-pin DIN ch 3 (GPIO17)</p></div>
+        <div class="flex gap-2"><button class="btn btn-ghost text-xs" data-copy="code-final">Copy code</button><button class="btn btn-ghost text-xs" data-dl="code-final" data-name="organworks_pedalboard.ino">Download .ino</button></div>
+      </div>
+      <pre class="code mt-3 scrolly"><code id="code-final"></code></pre>
+    </div>
+  </div>
+</section>
+
+<!-- ================= 6. GUIDE ================= -->
+<section id="guide" class="scroll-mt-24 py-10">
+  <div class="mb-5">
+    <p class="readout text-xs text-mint">07 · PROGRAMMING THE ESP32-S3</p>
+    <h2 class="mt-1 font-display text-3xl font-semibold">Five steps, in order.</h2>
+  </div>
+  <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+    <div class="card lift p-5"><div class="readout text-3xl font-semibold text-mint">1</div><h3 class="mt-2 font-semibold">Wire and power</h3><p class="mt-2 text-sm text-mute">SDA → GPIO8, SCL → GPIO9. 3.3 V to VCC and RESET on both MCP23017s, common ground. MCP1 A0–A2 to GND (0x20); MCP2 A0 to 3.3 V (0x21).</p></div>
+    <div class="card lift p-5"><div class="readout text-3xl font-semibold text-mint">2</div><h3 class="mt-2 font-semibold">Upload the scanner</h3><p class="mt-2 text-sm text-mute">Tools → USB CDC On Boot: <b class="text-fog">Enabled</b>. Upload, then open the Serial Monitor at <b class="text-fog">115200</b> baud.</p></div>
+    <div class="card lift p-5"><div class="readout text-3xl font-semibold text-mint">3</div><h3 class="mt-2 font-semibold">Verify the scan</h3><p class="mt-2 text-sm text-mute">Expect devices at <span class="readout text-fog">0x20</span> and <span class="readout text-fog">0x21</span>, total 2. Paste the output into the checker above if not.</p></div>
+    <div class="card lift p-5"><div class="readout text-3xl font-semibold text-mint">4</div><h3 class="mt-2 font-semibold">Upload final firmware</h3><p class="mt-2 text-sm text-mute">USB Mode: <b class="text-fog">USB-OTG (TinyUSB)</b>. USB CDC On Boot: <b class="text-fog">Disabled</b>. Upload Mode: <b class="text-fog">UART0 / Hardware CDC</b>. Hold BOOT, tap RESET if the port vanishes.</p></div>
+    <div class="card lift p-5"><div class="readout text-3xl font-semibold text-mint">5</div><h3 class="mt-2 font-semibold">Test both outputs</h3><p class="mt-2 text-sm text-mute">USB on channel 1, notes 36–67 (GrandOrgue, Electone). 5-pin DIN on channel 3 from GPIO17 through a 220 Ω resistor.</p></div>
+  </div>
+  <div class="card mt-4 p-4 sm:p-5">
+    <h3 class="text-sm font-semibold">Sensor assignment</h3>
+    <div class="mt-3 grid gap-3 sm:grid-cols-2">
+      <div class="rounded-xl bg-ink p-4"><div class="readout text-mint">MCP1 · 0x20</div><p class="mt-1 text-sm text-mute">Pins 0–15 (GPA0–GPA7, GPB0–GPB7) → pedals 1–16 → notes 36–51</p></div>
+      <div class="rounded-xl bg-ink p-4"><div class="readout text-mint">MCP2 · 0x21</div><p class="mt-1 text-sm text-mute">Pins 0–15 (GPA0–GPA7, GPB0–GPB7) → pedals 17–32 → notes 52–67</p></div>
+    </div>
+    <p class="mt-3 text-xs text-mute">Hall switches (A3144 / HX3144 type) are open-collector, active LOW: the firmware enables the internal pull-ups, and a magnet under the key pulls the pin to ground.</p>
+  </div>
+</section>
+</main>
+
+<footer class="mt-10 border-t border-line">
+  <div class="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-8 text-xs text-mute sm:px-6 md:flex-row md:items-start md:justify-between">
+    <div>
+      <div class="font-semibold text-fog">OrganWorks PH · Pedal Lab</div>
+      <p class="mt-1">© <span id="year"></span> OrganWorks PH. Workshop tool for MIDI organ consoles.</p>
+    </div>
+    <p class="max-w-xl md:text-right">Pipe sounds: GrandOrgue demo sample set, recordings by Lars Palo, © GrandOrgue contributors, used under the <a class="underline hover:text-fog" href="https://creativecommons.org/licenses/by-sa/2.5/se/">CC BY-SA 2.5 (SE)</a> licence (also GPL-2.0-or-later). Samples were trimmed, converted to mono and given crossfaded loops. Source: <a class="underline hover:text-fog" href="https://github.com/GrandOrgue/grandorgue">github.com/GrandOrgue/grandorgue</a>.</p>
+  </div>
+</footer>
+
+<!-- ================= MODALS ================= -->
+<div id="custModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="custModalTitle">
+  <div class="modal-panel card p-5 sm:p-6">
+    <div class="flex items-start justify-between gap-4">
+      <h3 id="custModalTitle" class="font-display text-2xl font-semibold">New customer</h3>
+      <button class="closeModal rounded-lg p-1.5 text-mute hover:bg-panel2 hover:text-fog" aria-label="Close"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+    </div>
+    <form id="custForm" class="mt-5 grid gap-3 sm:grid-cols-2" novalidate>
+      <div><label class="lbl" for="fName">Customer / organization *</label><input id="fName" name="name" class="field" required><p class="err mt-1 hidden text-xs text-rose">Enter a name.</p></div>
+      <div><label class="lbl" for="fContact">Contact person</label><input id="fContact" name="contact" class="field"></div>
+      <div><label class="lbl" for="fEmail">Email</label><input id="fEmail" name="email" type="email" class="field"><p class="err mt-1 hidden text-xs text-rose">That email doesn't look right.</p></div>
+      <div><label class="lbl" for="fPhone">Phone</label><input id="fPhone" name="phone" class="field" placeholder="+63 9xx xxx xxxx"><p class="err mt-1 hidden text-xs text-rose">Use digits, spaces, + or -.</p></div>
+      <div class="sm:col-span-2"><label class="lbl" for="fAddr">Address</label><input id="fAddr" name="address" class="field"></div>
+      <div><label class="lbl" for="fCity">City / province</label><input id="fCity" name="city" class="field"></div>
+      <div><label class="lbl" for="fType">Type</label><select id="fType" name="type" class="field"><option>Church</option><option>Home</option><option>School</option><option>Dealer</option><option>Other</option></select></div>
+      <div><label class="lbl" for="fStatus">Status</label><select id="fStatus" name="status" class="field"></select></div>
+      <div><label class="lbl" for="fSource">Source</label><input id="fSource" name="source" class="field" placeholder="Referral, Facebook, walk-in…"></div>
+      <div class="sm:col-span-2"><label class="lbl" for="fNotes">Notes</label><textarea id="fNotes" name="notes" rows="3" class="field" placeholder="Room size, existing organ, budget, decision date…"></textarea></div>
+      <div class="mt-2 flex justify-end gap-2 sm:col-span-2">
+        <button type="button" class="closeModal btn btn-ghost">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="custSubmit">Save customer</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div id="detailModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="detailTitle">
+  <div class="modal-panel card p-5 sm:p-6">
+    <div class="flex items-start justify-between gap-4">
+      <div><h3 id="detailTitle" class="font-display text-2xl font-semibold"></h3><p id="detailSub" class="text-sm text-mute"></p></div>
+      <button class="closeModal rounded-lg p-1.5 text-mute hover:bg-panel2 hover:text-fog" aria-label="Close"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+    </div>
+    <div id="detailBody" class="mt-5"></div>
+  </div>
+</div>
+
+<div id="confirmModal" class="modal" role="alertdialog" aria-modal="true" aria-labelledby="confirmTitle">
+  <div class="modal-panel card !max-w-md p-5 sm:p-6">
+    <h3 id="confirmTitle" class="font-display text-xl font-semibold">Are you sure?</h3>
+    <p id="confirmText" class="mt-2 text-sm text-mute"></p>
+    <div class="mt-5 flex justify-end gap-2">
+      <button class="closeModal btn btn-ghost">Cancel</button>
+      <button id="confirmOk" class="btn btn-danger">Delete</button>
+    </div>
+  </div>
+</div>
+
+<div id="txnModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="txnTitle">
+  <div class="modal-panel card p-5 sm:p-6">
+    <div class="flex items-start justify-between gap-4">
+      <h3 id="txnTitle" class="font-display text-2xl font-semibold">Add income</h3>
+      <button class="closeModal rounded-lg p-1.5 text-mute hover:bg-panel2 hover:text-fog" aria-label="Close"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+    </div>
+    <form id="txnForm" class="mt-5 grid gap-3 sm:grid-cols-2" novalidate>
+      <div class="sm:col-span-2 grid grid-cols-2 gap-1 rounded-xl bg-ink p-1" role="radiogroup" aria-label="Type">
+        <button type="button" class="txType btn !justify-center" data-t="income" role="radio">Income</button>
+        <button type="button" class="txType btn !justify-center" data-t="expense" role="radio">Expense</button>
+      </div>
+      <div><label class="lbl" for="xDate">Date *</label><input id="xDate" name="date" type="date" class="field" required><p class="err mt-1 hidden text-xs text-rose">Pick a date.</p></div>
+      <div><label class="lbl" for="xAmt">Amount ₱ *</label><input id="xAmt" name="amount" type="number" min="0" step="0.01" class="field readout" required><p class="err mt-1 hidden text-xs text-rose">Enter an amount above zero.</p></div>
+      <div class="sm:col-span-2"><label class="lbl" for="xDesc">Description *</label><input id="xDesc" name="desc" class="field" placeholder="e.g. Deposit for pedalboard, 32 hall sensors from LCSC"><p class="err mt-1 hidden text-xs text-rose">Say what it was for.</p></div>
+      <div><label class="lbl" for="xCat">Category</label><select id="xCat" name="category" class="field"></select></div>
+      <div><label class="lbl" for="xMethod">Payment method</label><select id="xMethod" name="method" class="field"><option>Bank transfer</option><option>GCash</option><option>Maya</option><option>Cash</option><option>Check</option><option>Card</option><option>Other</option></select></div>
+      <div><label class="lbl" for="xCust">Customer / supplier</label><select id="xCust" name="customerId" class="field"></select></div>
+      <div><label class="lbl" for="xParty">or name (not in database)</label><input id="xParty" name="party" class="field" placeholder="e.g. JLCPCB, Shopee seller"></div>
+      <div><label class="lbl" for="xDoc">Payment for invoice</label><select id="xDoc" name="docId" class="field"></select></div>
+      <div><label class="lbl" for="xRef">Reference / OR no.</label><input id="xRef" name="ref" class="field readout" placeholder="Receipt or transfer ref."></div>
+      <div class="sm:col-span-2"><label class="lbl" for="xNotes">Notes</label><textarea id="xNotes" name="notes" rows="2" class="field"></textarea></div>
+      <div class="mt-2 flex justify-end gap-2 sm:col-span-2">
+        <button type="button" class="closeModal btn btn-ghost">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="txnSubmit">Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div id="toasts" aria-live="polite"></div>
+
+<script>
+'use strict';
+/* =========================================================
+   Helpers
+   ========================================================= */
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
+const esc = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const peso = (n) => '₱' + (Number(n) || 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const pesoShort = (n) => '₱' + Math.round(Number(n) || 0).toLocaleString('en-PH');
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+const todayISO = () => { const d = new Date(); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 10); };
+const addDays = (iso, n) => { const d = new Date(iso + 'T00:00:00'); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
+const fmtDate = (iso) => { if (!iso) return '—'; const d = new Date(iso.length <= 10 ? iso + 'T00:00:00' : iso); return isNaN(d) ? '—' : d.toLocaleDateString('en-PH', { year: 'numeric', month: 'short', day: 'numeric' }); };
+const ago = (iso) => { if (!iso) return '—'; const s = (Date.now() - new Date(iso).getTime()) / 1000; if (s < 60) return 'just now'; if (s < 3600) return Math.floor(s / 60) + 'm ago'; if (s < 86400) return Math.floor(s / 3600) + 'h ago'; if (s < 86400 * 30) return Math.floor(s / 86400) + 'd ago'; return fmtDate(iso); };
+const ls = {
+  get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch (e) { return d; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch (e) { return false; } }
+};
+function toast(msg) {
+  const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg;
+  $('#toasts').appendChild(t); setTimeout(() => { t.style.opacity = '0'; t.style.transition = 'opacity .3s'; }, 3200); setTimeout(() => t.remove(), 3600);
+}
+async function copyText(text) {
+  try { await navigator.clipboard.writeText(text); toast('Copied to clipboard'); }
+  catch (e) {
+    const ta = document.createElement('textarea'); ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0'; document.body.appendChild(ta); ta.select();
+    let ok = false; try { ok = document.execCommand('copy'); } catch (_) {}
+    ta.remove(); toast(ok ? 'Copied to clipboard' : 'Copy was blocked here. Select the text and copy it manually.');
+  }
+}
+const hasClaude = () => typeof window.claude === 'object' && window.claude && typeof window.claude.use === 'function';
+async function saveFile(filename, data) {
+  if (hasClaude()) {
+    try {
+      const dl = await window.claude.use('downloads');
+      if (dl) {
+        let name = filename;
+        if (/\.ino$/i.test(name)) name = name + '.txt'; // .ino is not on the allowed list in this viewer
+        await dl.save({ filename: name, data });
+        if (name !== filename) toast('Saved as ' + name + '. Rename it to .ino before opening in Arduino IDE.');
+        return;
+      }
+    } catch (e) {
+      if (e && e.code === 'declined') { toast('Download cancelled'); return; }
+    }
+  }
+  try {
+    const blob = data instanceof Blob ? data : new Blob([data], { type: 'application/octet-stream' });
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = filename;
+    document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  } catch (e) { toast('Downloads are blocked in this view.'); }
+}
+$('#year').textContent = new Date().getFullYear();
+
+/* =========================================================
+   Nav: mobile menu + active link
+   ========================================================= */
+(() => {
+  const btn = $('#menuBtn'), nav = $('#mobileNav');
+  btn.addEventListener('click', () => { const open = nav.classList.toggle('hidden') === false; btn.setAttribute('aria-expanded', String(open)); });
+  $$('#mobileNav a').forEach(a => a.addEventListener('click', () => { nav.classList.add('hidden'); btn.setAttribute('aria-expanded', 'false'); }));
+  const links = $$('header nav a.nav-link');
+  const io = new IntersectionObserver((es) => {
+    es.forEach(e => { if (e.isIntersecting) links.forEach(l => l.classList.toggle('active', l.getAttribute('href') === '#' + e.target.id)); });
+  }, { rootMargin: '-45% 0px -50% 0px' });
+  ['tester', 'customers', 'studio', 'books', 'checker', 'firmware', 'guide'].forEach(id => io.observe(document.getElementById(id)));
+})();
+
+/* =========================================================
+   Modals
+   ========================================================= */
+let lastFocus = null;
+function openModal(id) { lastFocus = document.activeElement; const m = document.getElementById(id); m.classList.add('open'); document.body.style.overflow = 'hidden'; setTimeout(() => { const f = m.querySelector('input,select,textarea,button:not(.closeModal)'); f && f.focus(); }, 30); }
+function closeModal(m) { m.classList.remove('open'); if (!$('.modal.open')) document.body.style.overflow = ''; lastFocus && lastFocus.focus && lastFocus.focus(); }
+$$('.modal').forEach(m => {
+  m.addEventListener('mousedown', e => { if (e.target === m) closeModal(m); });
+  $$('.closeModal', m).forEach(b => b.addEventListener('click', () => closeModal(m)));
+});
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') { const m = $$('.modal.open').pop(); if (m) closeModal(m); }
+  if (e.key === 'Tab') {
+    const m = $$('.modal.open').pop(); if (!m) return;
+    const f = $$('a[href],button:not([disabled]),input,select,textarea', m).filter(x => x.offsetParent !== null);
+    if (!f.length) return; const first = f[0], last = f[f.length - 1];
+    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+  }
+});
+let confirmCb = null;
+function confirmBox(title, text, okLabel, cb) { $('#confirmTitle').textContent = title; $('#confirmText').textContent = text; $('#confirmOk').textContent = okLabel; confirmCb = cb; openModal('confirmModal'); }
+$('#confirmOk').addEventListener('click', () => { closeModal($('#confirmModal')); const cb = confirmCb; confirmCb = null; cb && cb(); });
+
+/* =========================================================
+   Pedal data
+   ========================================================= */
+const FIRST_NOTE = 36, NUM_PEDALS = 32;
+const NOTE_NAMES = ['C', 'C♯', 'D', 'D♯', 'E', 'F', 'F♯', 'G', 'G♯', 'A', 'A♯', 'B'];
+const noteName = (n) => NOTE_NAMES[n % 12] + (Math.floor(n / 12) - 1);
+const isSharp = (n) => [1, 3, 6, 8, 10].includes(n % 12);
+const pedalOf = (note) => note - FIRST_NOTE + 1;
+const mcpOf = (p) => { const i = (p - 1) % 16; return (p <= 16 ? 'MCP1' : 'MCP2') + ' · ' + (i < 8 ? 'GPA' + i : 'GPB' + (i - 8)) + ' (pin ' + i + ')'; };
+
+/* =========================================================
+   Audio engine: GrandOrgue demo pipe samples
+   ========================================================= */
+// Measured fundamental (Hz) and baked loop points (s) for each sample file.
+const SAMPLES = {
+  bourdon:   { '030': [46.439, 2.024625, 3.40346875], '042': [92.875, 2.1625, 3.56253125], '054': [186.08, 1.9058125, 3.30875], '066': [373.204, 2.22515625, 3.62465625] },
+  montre:    { '030': [46.71, 2.8141875, 4.2188125], '042': [93.44, 2.3261875, 3.7178125], '054': [186.668, 2.96478125, 4.3629375], '066': [373.002, 2.5895, 3.98903125] },
+  trompette: { '030': [46.597, 2.63375, 4.0315625], '042': [93.207, 2.15059375, 3.5453125], '054': [186.353, 1.85546875, 3.2560625], '066': [372.817, 2.039625, 3.43971875] }
+};
+const FILES = { bourdon: 'bourdon8', montre: 'montre8', trompette: 'trompette8' };
+const STOPS = [
+  { id: 'soubasse', name: 'Soubasse', feet: "16'", rank: 'bourdon', shift: -12, gain: 1.0, on: true },
+  { id: 'bourdon', name: 'Bourdon', feet: "8'", rank: 'bourdon', shift: 0, gain: 0.7, on: false },
+  { id: 'montre', name: 'Montre', feet: "8'", rank: 'montre', shift: 0, gain: 0.75, on: true },
+  { id: 'bombarde', name: 'Bombarde', feet: "16'", rank: 'trompette', shift: -12, gain: 0.6, on: false }
+];
+const Audio = {
+  ctx: null, master: null, dry: null, wet: null, conv: null, buffers: {}, loading: null, failed: false,
+  mode: ls.get('owph.soundMode', 'pipe'), voices: new Map(),
+  ensure() {
+    if (this.ctx) { if (this.ctx.state === 'suspended') this.ctx.resume(); return this.ctx; }
+    const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return null;
+    const ctx = this.ctx = new AC();
+    this.master = ctx.createGain(); this.master.gain.value = $('#vol').value / 100;
+    const comp = ctx.createDynamicsCompressor(); comp.threshold.value = -10; comp.ratio.value = 4;
+    this.dry = ctx.createGain(); this.wet = ctx.createGain(); this.conv = ctx.createConvolver();
+    this.conv.buffer = this.makeIR(3.2);
+    this.dry.connect(this.master); this.conv.connect(this.wet); this.wet.connect(this.master);
+    this.master.connect(comp); comp.connect(ctx.destination);
+    this.setReverb($('#reverb').checked);
+    return ctx;
+  },
+  makeIR(sec) {
+    const ctx = this.ctx, len = Math.floor(ctx.sampleRate * sec), ir = ctx.createBuffer(2, len, ctx.sampleRate);
+    for (let c = 0; c < 2; c++) { const d = ir.getChannelData(c); for (let i = 0; i < len; i++) { const t = i / len; d[i] = (Math.random() * 2 - 1) * Math.pow(1 - t, 3.2) * (i < 600 ? i / 600 : 1); } }
+    return ir;
+  },
+  setReverb(on) { if (!this.ctx) return; this.wet.gain.value = on ? 0.42 : 0; this.dry.gain.value = on ? 0.85 : 1; },
+  async load() {
+    if (this.loading) return this.loading;
+    const status = $('#sampleStatus');
+    status.textContent = 'Loading pipe samples…';
+    this.loading = (async () => {
+      const ctx = this.ensure(); const jobs = [];
+      for (const rank of Object.keys(SAMPLES)) for (const key of Object.keys(SAMPLES[rank])) {
+        jobs.push(fetch('samples/' + FILES[rank] + '-' + key + '.wav').then(r => { if (!r.ok) throw new Error(r.status); return r.arrayBuffer(); })
+          .then(ab => new Promise((res, rej) => ctx.decodeAudioData(ab, res, rej))).then(buf => { this.buffers[rank + key] = buf; }));
+      }
+      try { await Promise.all(jobs); status.innerHTML = '<span class="text-mint">●</span> 12 pipe samples loaded (Bourdon, Montre, Trompette).'; }
+      catch (e) { this.failed = true; status.innerHTML = '<span class="text-amber">●</span> Pipe samples not found next to this page (put the <span class="readout">samples/</span> folder beside index.html). Using a synthesized pipe tone instead.'; }
+    })();
+    return this.loading;
+  },
+  pick(rank, midi) {
+    const table = SAMPLES[rank]; const f = 440 * Math.pow(2, (midi - 69) / 12);
+    let best = null, bd = 1e9;
+    for (const k of Object.keys(table)) { const d = Math.abs(Math.log2(f / table[k][0])); if (d < bd) { bd = d; best = k; } }
+    const [f0, ls_, le] = table[best]; return { buf: this.buffers[rank + best], rate: f / f0, loopStart: ls_, loopEnd: le };
+  },
+  noteOn(note, vel = 100) {
+    if (this.mode === 'off') return;
+    const ctx = this.ensure(); if (!ctx) return;
+    this.noteOff(note, true);
+    const out = ctx.createGain(); out.gain.value = 1; out.connect(this.dry); out.connect(this.conv);
+    const nodes = [];
+    const v = 0.5 + (vel / 127) * 0.5;
+    if (this.mode === 'beep') {
+      const o = ctx.createOscillator(); o.type = 'triangle'; o.frequency.value = 440 * Math.pow(2, (note - 69) / 12);
+      const g = ctx.createGain(); g.gain.setValueAtTime(0, ctx.currentTime); g.gain.linearRampToValueAtTime(0.35 * v, ctx.currentTime + 0.01); g.gain.setTargetAtTime(0.12 * v, ctx.currentTime + 0.05, 0.08);
+      o.connect(g); g.connect(out); o.start(); nodes.push(o);
+    } else {
+      const active = STOPS.filter(s => s.on);
+      if (!active.length) { this.voices.set(note, { out, nodes }); return; }
+      const scale = 1 / Math.sqrt(active.length);
+      for (const s of active) {
+        const midi = note + s.shift;
+        const p = this.buffers[s.rank + '030'] ? this.pick(s.rank, midi) : null;
+        const g = ctx.createGain(); g.gain.value = s.gain * scale * v; g.connect(out);
+        if (p && p.buf) {
+          const src = ctx.createBufferSource(); src.buffer = p.buf; src.playbackRate.value = p.rate;
+          src.loop = true; src.loopStart = p.loopStart; src.loopEnd = p.loopEnd; src.connect(g); src.start(); nodes.push(src);
+        } else {
+          // synthesized fallback (while loading or if samples are missing)
+          const f = 440 * Math.pow(2, (midi - 69) / 12);
+          const harm = s.rank === 'trompette' ? [1, .8, .7, .55, .45, .35, .28, .2] : s.rank === 'montre' ? [1, .45, .25, .15, .08] : [1, .05, .22, .03, .08];
+          const real = new Float32Array(harm.length + 1), imag = new Float32Array(harm.length + 1); harm.forEach((h, i) => imag[i + 1] = h);
+          const o = ctx.createOscillator(); o.setPeriodicWave(ctx.createPeriodicWave(real, imag)); o.frequency.value = f;
+          const eg = ctx.createGain(); eg.gain.setValueAtTime(0, ctx.currentTime); eg.gain.linearRampToValueAtTime(0.3, ctx.currentTime + 0.08);
+          o.connect(eg); eg.connect(g); o.start(); nodes.push(o);
+        }
+      }
+    }
+    this.voices.set(note, { out, nodes });
+  },
+  noteOff(note, immediate) {
+    const v = this.voices.get(note); if (!v || !this.ctx) return;
+    this.voices.delete(note);
+    const t = this.ctx.currentTime, rel = immediate ? 0.03 : 0.28;
+    v.out.gain.cancelScheduledValues(t); v.out.gain.setValueAtTime(v.out.gain.value, t); v.out.gain.setTargetAtTime(0, t, rel / 3);
+    v.nodes.forEach(n => { try { n.stop(t + rel * 2.5); } catch (e) {} });
+    setTimeout(() => { try { v.out.disconnect(); } catch (e) {} }, (rel * 2.5 + 0.2) * 1000);
+  },
+  allOff() { Array.from(this.voices.keys()).forEach(n => this.noteOff(n, true)); }
+};
+
+/* Sound controls */
+function renderStops() {
+  const saved = ls.get('owph.stops', null); if (saved) STOPS.forEach(s => { if (s.id in saved) s.on = !!saved[s.id]; });
+  $('#stops').innerHTML = STOPS.map(s => `<button class="stop" data-stop="${s.id}" aria-pressed="${s.on}">${s.name}<small>${s.feet}</small></button>`).join('');
+  $$('#stops .stop').forEach(b => b.addEventListener('click', () => {
+    const s = STOPS.find(x => x.id === b.dataset.stop); s.on = !s.on; b.setAttribute('aria-pressed', s.on);
+    ls.set('owph.stops', Object.fromEntries(STOPS.map(x => [x.id, x.on])));
+    if (Audio.mode === 'pipe') Audio.load();
+  }));
+}
+function setMode(m) {
+  Audio.mode = m; ls.set('owph.soundMode', m);
+  $$('.soundMode').forEach(b => { const on = b.dataset.mode === m; b.className = 'soundMode btn !justify-center !px-2 text-xs ' + (on ? 'btn-primary' : 'text-mute hover:text-fog'); b.setAttribute('aria-checked', on); });
+  $('#stopsWrap').style.opacity = m === 'pipe' ? '1' : '.4';
+  if (m === 'off') Audio.allOff();
+}
+$$('.soundMode').forEach(b => b.addEventListener('click', () => { setMode(b.dataset.mode); if (b.dataset.mode === 'pipe') Audio.load(); }));
+$('#vol').addEventListener('input', e => { if (Audio.master) Audio.master.gain.value = e.target.value / 100; });
+$('#reverb').addEventListener('change', e => { Audio.ensure(); Audio.setReverb(e.target.checked); });
+$('#panic').addEventListener('click', () => { Audio.allOff(); $$('#pedalboard .on').forEach(k => k.classList.remove('on')); toast('All notes off'); });
+renderStops(); setMode(Audio.mode);
+
+/* =========================================================
+   Pedalboard UI + map
+   ========================================================= */
+const tested = new Set(ls.get('owph.tested', []));
+const keyEls = {};
+(function buildBoard() {
+  const board = $('#pedalboard'); const naturals = [];
+  for (let n = FIRST_NOTE; n < FIRST_NOTE + NUM_PEDALS; n++) if (!isSharp(n)) naturals.push(n);
+  const w = 100 / naturals.length; let html = '';
+  naturals.forEach((n, i) => { html += `<div class="pnat" data-note="${n}" style="left:calc(${i * w}% + 2px);width:calc(${w}% - 4px)" role="button" aria-label="Pedal ${pedalOf(n)}, ${noteName(n)}"><span class="pnum">${pedalOf(n)}</span></div>`; });
+  for (let n = FIRST_NOTE; n < FIRST_NOTE + NUM_PEDALS; n++) if (isSharp(n)) {
+    const idx = naturals.indexOf(n - 1) + 1;
+    html += `<div class="psharp" data-note="${n}" style="left:calc(${idx * w}% - ${w * 0.3}%);width:${w * 0.6}%" role="button" aria-label="Pedal ${pedalOf(n)}, ${noteName(n)}"><span class="pnum">${pedalOf(n)}</span></div>`;
+  }
+  board.innerHTML = html;
+  $$('[data-note]', board).forEach(el => { keyEls[el.dataset.note] = el; if (tested.has(+el.dataset.note)) el.classList.add('tested'); });
+  const held = new Map();
+  board.addEventListener('pointerdown', e => {
+    const k = e.target.closest('[data-note]'); if (!k) return; e.preventDefault();
+    board.setPointerCapture && board.setPointerCapture(e.pointerId);
+    const n = +k.dataset.note; held.set(e.pointerId, n); handleNote(true, n, 100, 'screen');
+  });
+  const up = e => { const n = held.get(e.pointerId); if (n != null) { held.delete(e.pointerId); handleNote(false, n, 0, 'screen'); } };
+  board.addEventListener('pointerup', up); board.addEventListener('pointercancel', up);
+  board.addEventListener('pointermove', e => {
+    if (!held.has(e.pointerId)) return; const el = document.elementFromPoint(e.clientX, e.clientY); const k = el && el.closest && el.closest('#pedalboard [data-note]');
+    if (k && +k.dataset.note !== held.get(e.pointerId)) { handleNote(false, held.get(e.pointerId), 0, 'screen'); const n = +k.dataset.note; held.set(e.pointerId, n); handleNote(true, n, 100, 'screen'); }
+  });
+})();
+function renderMap() {
+  let h = '';
+  for (let p = 1; p <= NUM_PEDALS; p++) { const n = FIRST_NOTE + p - 1; h += `<tr id="map-${n}"><td class="readout">${p}</td><td class="readout text-xs text-mute">${mcpOf(p)}</td><td class="readout">${n}</td><td>${noteName(n)}</td><td>${tested.has(n) ? '<span class="text-mint">✓</span>' : '<span class="text-mute">·</span>'}</td></tr>`; }
+  $('#mapBody').innerHTML = h; $('#coverage').textContent = tested.size + '/32';
+}
+renderMap();
+$('#resetCoverage').addEventListener('click', () => { tested.clear(); ls.set('owph.tested', []); $$('#pedalboard .tested').forEach(k => k.classList.remove('tested')); renderMap(); });
+
+const KEYMAP = 'zsxdcvgbhnjm,l.;/';
+const downKeys = new Set();
+document.addEventListener('keydown', e => {
+  if (e.repeat || e.metaKey || e.ctrlKey || e.altKey) return;
+  if (/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName) || $('.modal.open')) return;
+  const i = KEYMAP.indexOf(e.key.toLowerCase()); if (i < 0) return;
+  e.preventDefault(); downKeys.add(i); handleNote(true, FIRST_NOTE + i, 100, 'keyboard');
+});
+document.addEventListener('keyup', e => { const i = KEYMAP.indexOf(e.key.toLowerCase()); if (i >= 0 && downKeys.has(i)) { downKeys.delete(i); handleNote(false, FIRST_NOTE + i, 0, 'keyboard'); } });
+
+/* Event handling */
+let events = [];
+function handleNote(on, note, vel, source, ch) {
+  if (on && Audio.mode === 'pipe' && !Audio.loading) Audio.load();
+  const inRange = note >= FIRST_NOTE && note < FIRST_NOTE + NUM_PEDALS;
+  const k = keyEls[note]; if (k) k.classList.toggle('on', on);
+  if (on) Audio.noteOn(note, vel || 100); else Audio.noteOff(note);
+  $('#roPedal').textContent = inRange ? pedalOf(note) : 'out';
+  $('#roNote').textContent = note + ' ' + noteName(note);
+  $('#roCh').textContent = ch ? ch : (source === 'midi' ? '?' : '—');
+  $('#roVel').textContent = vel;
+  const ev = $('#roEv'); ev.textContent = on ? 'Note On' : 'Note Off'; ev.className = 'readout text-xl font-semibold ' + (on ? 'text-mint' : 'text-mute');
+  if (source === 'midi') {
+    if (on && inRange && !tested.has(note)) { tested.add(note); ls.set('owph.tested', Array.from(tested)); k && k.classList.add('tested'); renderMap(); }
+    const row = $('#map-' + note); if (row && on) { row.classList.add('hit'); setTimeout(() => row.classList.remove('hit'), 400); }
+  }
+  logEvent({ t: new Date(), on, note, vel, ch, source, inRange });
+}
+function logEvent(e) {
+  events.unshift(e); if (events.length > 150) events.length = 150;
+  $('#evCount').textContent = events.length + (events.length === 1 ? ' event' : ' events');
+  $('#evLog').innerHTML = events.map(x => {
+    const tm = x.t.toLocaleTimeString('en-PH', { hour12: false }) + '.' + String(x.t.getMilliseconds()).padStart(3, '0');
+    const src = x.source === 'midi' ? `ch ${x.ch}` : x.source;
+    return `<div class="flex gap-3"><span class="text-mute">${tm}</span><span class="${x.on ? 'text-mint' : 'text-mute'} w-16">${x.on ? 'NOTE ON' : 'NOTE OFF'}</span><span class="w-20">${x.note} ${noteName(x.note)}</span><span class="w-14">vel ${x.vel}</span><span class="text-mute">${esc(src)}${x.inRange ? ' · pedal ' + pedalOf(x.note) : ' · outside 36–67'}</span></div>`;
+  }).join('');
+}
+$('#clearLog').addEventListener('click', () => { events = []; $('#evCount').textContent = '0 events'; $('#evLog').innerHTML = '<p class="text-mute">Note On / Note Off messages appear here.</p>'; });
+
+let testTimer = null;
+$('#visualTest').addEventListener('click', () => {
+  const btn = $('#visualTest');
+  if (testTimer) { clearInterval(testTimer); testTimer = null; Audio.allOff(); $$('#pedalboard .on').forEach(k => k.classList.remove('on')); btn.textContent = 'Run visual test'; return; }
+  btn.textContent = 'Stop test'; let n = FIRST_NOTE;
+  testTimer = setInterval(() => {
+    if (n > FIRST_NOTE) handleNote(false, n - 1, 0, 'test');
+    if (n >= FIRST_NOTE + NUM_PEDALS) { clearInterval(testTimer); testTimer = null; btn.textContent = 'Run visual test'; return; }
+    handleNote(true, n, 100, 'test'); n++;
+  }, 220);
+});
+
+/* =========================================================
+   Web MIDI
+   ========================================================= */
+let midiAccess = null, currentInput = null;
+function setMidiStatus(text, color) { $('#midiStatus').innerHTML = `<span class="dot" style="background:${color}"></span>${esc(text)}`; }
+function onMidi(e) {
+  const [st, d1, d2] = e.data; const type = st & 0xf0, ch = (st & 0x0f) + 1;
+  if ($('#chFilter').checked && ch !== 1 && ch !== 3) return;
+  if (type === 0x90 && d2 > 0) handleNote(true, d1, d2, 'midi', ch);
+  else if (type === 0x80 || (type === 0x90 && d2 === 0)) handleNote(false, d1, d2, 'midi', ch);
+  else if (type === 0xb0) logEvent({ t: new Date(), on: false, note: d1, vel: d2, ch, source: 'midi', inRange: false });
+}
+function listInputs() {
+  const sel = $('#midiDevice'); const ins = midiAccess ? Array.from(midiAccess.inputs.values()) : [];
+  const prev = sel.value;
+  sel.innerHTML = '<option value="">' + (ins.length ? 'Choose a device…' : 'No device found') + '</option>' + ins.map(i => `<option value="${esc(i.id)}">${esc(i.name)}</option>`).join('');
+  const auto = ins.find(i => i.id === prev) || ins.find(i => /organworks|pedal|esp32|tinyusb/i.test(i.name)) || (ins.length === 1 ? ins[0] : null);
+  if (auto) { sel.value = auto.id; useInput(auto.id); } else if (!ins.length) setMidiStatus('No MIDI devices', '#f2b84b');
+}
+function useInput(id) {
+  if (currentInput) currentInput.onmidimessage = null;
+  currentInput = midiAccess && id ? midiAccess.inputs.get(id) : null;
+  if (currentInput) { currentInput.onmidimessage = onMidi; setMidiStatus('Connected · ' + currentInput.name, '#5fd3b5'); }
+  else setMidiStatus('Connected · pick a device', '#f2b84b');
+}
+$('#midiDevice').addEventListener('change', e => useInput(e.target.value));
+$('#midiConnect').addEventListener('click', async () => {
+  Audio.ensure(); if (Audio.mode === 'pipe') Audio.load();
+  const note = $('#midiNote');
+  if (!navigator.requestMIDIAccess) { note.textContent = 'This browser has no Web MIDI. Use Chrome, Edge or Opera on desktop or Android. The on-screen pedalboard still works.'; note.classList.remove('hidden'); return; }
+  try {
+    midiAccess = await navigator.requestMIDIAccess({ sysex: false });
+    note.classList.add('hidden');
+    midiAccess.onstatechange = listInputs; listInputs();
+  } catch (e) {
+    note.textContent = 'MIDI access was blocked. If you are viewing this inside Claude, open the deployed copy (GitHub Pages or Vercel) in Chrome or Edge, where the browser can ask for MIDI permission. The on-screen pedalboard and sound still work here.';
+    note.classList.remove('hidden'); setMidiStatus('Blocked', '#f07a6a');
+  }
+});
+
+/* =========================================================
+   Data store: shared cloud database when available, otherwise this browser
+   ========================================================= */
+const STATUSES = [
+  { id: 'Lead', color: '#8ea6a1' }, { id: 'Quoted', color: '#f2b84b' }, { id: 'Won', color: '#5fd3b5' },
+  { id: 'Installed', color: '#7aa7ff' }, { id: 'Support', color: '#c58cf0' }, { id: 'Lost', color: '#f07a6a' }
+];
+const statusColor = (s) => (STATUSES.find(x => x.id === s) || STATUSES[0]).color;
+const Store = {
+  mode: 'local', db: null, readOnly: false, loaded: false,
+  customers: ls.get('owph.customers', []), documents: ls.get('owph.documents', []), business: ls.get('owph.business', null), transactions: ls.get('owph.txns', []),
+  subs: [], listeners: new Set(), queues: new Map(),
+  onChange(fn) { this.listeners.add(fn); },
+  emit() { this.listeners.forEach(fn => { try { fn(); } catch (e) { console.error(e); } }); },
+  persistLocal() { if (this.mode !== 'local') return; ls.set('owph.customers', this.customers); ls.set('owph.documents', this.documents); ls.set('owph.business', this.business); ls.set('owph.txns', this.transactions); },
+  async init() {
+    this.emit();
+    if (!hasClaude()) { this.loaded = true; return; }
+    let db = null; try { db = await window.claude.use('db'); } catch (e) { db = null; }
+    if (!db) { this.loaded = true; return; }
+    this.db = db; this.mode = 'cloud';
+    const localC = ls.get('owph.customers', []), localD = ls.get('owph.documents', []), localT = ls.get('owph.txns', []);
+    this.customers = []; this.documents = []; this.transactions = []; this.emit(); setStoreUi('loading');
+    let gotC = false, gotD = false;
+    const timer = setTimeout(() => { if (!gotC) setStoreUi('slow'); }, 10000);
+    const fail = (e) => { clearTimeout(timer); setStoreUi('error', e); };
+    this.subs.push(db.collection('customers').onSnapshot(snap => {
+      this.customers = snap.docs.map(d => ({ ...d.data(), id: d.id }));
+      if (!snap.metadata.fromCache && !gotC) { gotC = true; clearTimeout(timer); setStoreUi('cloud'); this.offerMigration(localC, localD, localT); }
+      this.loaded = true; this.emit();
+    }, fail));
+    this.subs.push(db.collection('transactions').onSnapshot(snap => { this.transactions = snap.docs.map(d => ({ ...d.data(), id: d.id })); this.emit(); }, fail));
+    this.subs.push(db.collection('documents').onSnapshot(snap => { this.documents = snap.docs.map(d => ({ ...d.data(), id: d.id })); gotD = true; this.emit(); }, fail));
+    this.subs.push(db.doc('settings/business').onSnapshot(s => { if (s.exists) { this.business = s.data(); fillBusiness(); } }, () => {}));
+  },
+  offerMigration(localC, localD, localT) {
+    const ids = new Set(this.customers.map(c => c.id));
+    const missing = localC.filter(c => !ids.has(c.id));
+    const tIds = new Set(this.transactions.map(t => t.id)); const missingT = (localT || []).filter(t => !tIds.has(t.id));
+    if ((!missing.length && !missingT.length) || this.readOnly) return;
+    $('#migrateText').textContent = `Records saved earlier in this browser are not in the shared database yet: ${missing.length} customer(s), ${missingT.length} transaction(s).`;
+    $('#migrateBanner').classList.replace('hidden', 'flex');
+    $('#migrateBtn').onclick = async () => {
+      $('#migrateBtn').disabled = true;
+      const docIds = new Set(this.documents.map(d => d.id));
+      try {
+        for (const c of missing) await this.saveCustomer(c);
+        for (const d of localD.filter(d => !docIds.has(d.id))) await this.saveDocument(d);
+        for (const t of missingT) await this.saveTxn(t);
+        toast('Copied to the shared database'); $('#migrateBanner').classList.replace('flex', 'hidden');
+      } catch (e) { $('#migrateBtn').disabled = false; }
+    };
+  },
+  queue(key, fn) {
+    const prev = this.queues.get(key) || Promise.resolve();
+    const next = prev.catch(() => {}).then(fn); this.queues.set(key, next); return next;
+  },
+  async cloudWrite(key, fn) {
+    try { return await this.queue(key, fn); }
+    catch (e) {
+      if (e && e.code === 'unavailable') { await new Promise(r => setTimeout(r, 400 + Math.random() * 600)); return this.queue(key, fn); }
+      if (e && e.code === 'invalid_argument') { this.readOnly = true; setStoreUi('readonly'); }
+      if (e && e.code === 'quota_exceeded') toast('The database is full. Delete old records to add new ones.');
+      else toast('Could not save: ' + (e && e.message ? e.message : 'unknown error'));
+      throw e;
+    }
+  },
+  strip(o) { const c = JSON.parse(JSON.stringify(o)); delete c.id; return c; },
+  async saveCustomer(c) {
+    c.updatedAt = new Date().toISOString(); if (!c.createdAt) c.createdAt = c.updatedAt;
+    if (this.mode === 'cloud') return this.cloudWrite('c/' + c.id, () => this.db.collection('customers').doc(c.id).set(this.strip(c)));
+    const i = this.customers.findIndex(x => x.id === c.id); if (i >= 0) this.customers[i] = c; else this.customers.push(c);
+    this.persistLocal(); this.emit();
+  },
+  async deleteCustomer(id) {
+    if (this.mode === 'cloud') return this.cloudWrite('c/' + id, () => this.db.collection('customers').doc(id).delete());
+    this.customers = this.customers.filter(c => c.id !== id); this.persistLocal(); this.emit();
+  },
+  async saveDocument(d) {
+    d.updatedAt = new Date().toISOString(); if (!d.createdAt) d.createdAt = d.updatedAt;
+    if (this.mode === 'cloud') return this.cloudWrite('d/' + d.id, () => this.db.collection('documents').doc(d.id).set(this.strip(d)));
+    const i = this.documents.findIndex(x => x.id === d.id); if (i >= 0) this.documents[i] = d; else this.documents.push(d);
+    this.persistLocal(); this.emit();
+  },
+  async deleteDocument(id) {
+    if (this.mode === 'cloud') return this.cloudWrite('d/' + id, () => this.db.collection('documents').doc(id).delete());
+    this.documents = this.documents.filter(d => d.id !== id); this.persistLocal(); this.emit();
+  },
+  async saveTxn(t) {
+    t.updatedAt = new Date().toISOString(); if (!t.createdAt) t.createdAt = t.updatedAt;
+    if (this.mode === 'cloud') return this.cloudWrite('t/' + t.id, () => this.db.collection('transactions').doc(t.id).set(this.strip(t)));
+    const i = this.transactions.findIndex(x => x.id === t.id); if (i >= 0) this.transactions[i] = t; else this.transactions.push(t);
+    this.persistLocal(); this.emit();
+  },
+  async deleteTxn(id) {
+    if (this.mode === 'cloud') return this.cloudWrite('t/' + id, () => this.db.collection('transactions').doc(id).delete());
+    this.transactions = this.transactions.filter(t => t.id !== id); this.persistLocal(); this.emit();
+  },
+  async saveBusiness(b) {
+    this.business = b;
+    if (this.mode === 'cloud') return this.cloudWrite('settings', () => this.db.doc('settings/business').set(b));
+    this.persistLocal();
+  }
+};
+function setStoreUi(state, err) {
+  const badge = $('#storeBadge'), note = $('#storeNote');
+  const map = {
+    local: ['#f2b84b', 'This browser', 'Saved in this browser only. Export a CSV regularly as a backup.'],
+    loading: ['#f2b84b', 'Connecting…', 'Connecting to the shared database…'],
+    slow: ['#f2b84b', 'Connecting…', 'The shared database can’t be reached yet. Anything shown may be out of date.'],
+    cloud: ['#5fd3b5', 'Shared database', 'Saved in the shared database. Everyone you share this page with as a Contributor sees the same list, live.'],
+    readonly: ['#8ea6a1', 'Read-only', 'You can view customers but not change them. Ask the owner for Contributor access.'],
+    error: ['#f07a6a', 'Offline', 'The shared database stopped answering' + (err && err.code ? ' (' + err.code + ')' : '') + '. Reload the page to reconnect.']
+  };
+  const [c, b, n] = map[state] || map.local;
+  badge.innerHTML = `<span class="dot" style="background:${c}"></span>${b}`; note.textContent = n;
+  const ro = state === 'readonly';
+  ['#newCustomer', '#saveRecord', '#csvImport', '#bkAddInc', '#bkAddExp'].forEach(s => { const el = $(s); if (el) el.disabled = ro; });
+}
+setStoreUi('local');
+
+/* =========================================================
+   Customers UI
+   ========================================================= */
+let crmFilter = { q: '', status: '', type: '', sort: 'updated' };
+const latestQuote = (cid) => {
+  const ds = Store.documents.filter(d => d.customerId === cid).sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+  const q = ds.find(d => d.docType === 'quotation') || ds[0]; return q ? q.total || 0 : 0;
+};
+function renderCustomers() {
+  const cs = Store.customers;
+  $('#heroCustomers').textContent = cs.length;
+  const open = cs.filter(c => c.status === 'Quoted').reduce((s, c) => s + latestQuote(c.id), 0);
+  $('#heroPipeline').textContent = pesoShort(open);
+  const count = (s) => cs.filter(c => c.status === s).length;
+  $('#crmStats').innerHTML = [
+    ['Total', cs.length, '#e5eeeb'], ['Leads', count('Lead'), statusColor('Lead')], ['Quoted', count('Quoted'), statusColor('Quoted')],
+    ['Won + installed', count('Won') + count('Installed'), statusColor('Won')], ['Open quote value', pesoShort(open), '#f2b84b']
+  ].map(([l, v, c]) => `<div class="card px-4 py-3"><div class="readout text-xl font-semibold" style="color:${c}">${v}</div><div class="text-xs text-mute">${l}</div></div>`).join('');
+  $('#statusChips').innerHTML = ['', ...STATUSES.map(s => s.id)].map(s => {
+    const on = crmFilter.status === s, n = s ? count(s) : cs.length;
+    return `<button class="pill ${on ? '!border-mint !text-fog' : 'text-mute hover:text-fog'}" data-status="${s}" aria-pressed="${on}">${s ? `<span class="dot" style="background:${statusColor(s)}"></span>` : ''}${s || 'All'} <span class="readout opacity-70">${n}</span></button>`;
+  }).join('');
+  const q = crmFilter.q.trim().toLowerCase();
+  let rows = cs.filter(c => (!crmFilter.status || c.status === crmFilter.status) && (!crmFilter.type || c.type === crmFilter.type) &&
+    (!q || [c.name, c.contact, c.email, c.phone, c.city, c.address, c.notes, c.source].join(' ').toLowerCase().includes(q)));
+  const sorters = {
+    updated: (a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''), created: (a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''),
+    name: (a, b) => (a.name || '').localeCompare(b.name || ''), value: (a, b) => latestQuote(b.id) - latestQuote(a.id)
+  };
+  rows.sort(sorters[crmFilter.sort]);
+  $('#crmBody').innerHTML = rows.map(c => `
+    <tr class="cursor-pointer hover:bg-panel2/60" data-id="${esc(c.id)}">
+      <td><div class="font-semibold">${esc(c.name)}</div>${c.source ? `<div class="text-xs text-mute">${esc(c.source)}</div>` : ''}</td>
+      <td><div>${esc(c.contact || '—')}</div><div class="text-xs text-mute">${esc([c.phone, c.email].filter(Boolean).join(' · '))}</div></td>
+      <td class="text-mute">${esc(c.city || '—')}</td>
+      <td><span class="pill text-mute">${esc(c.type || '—')}</span></td>
+      <td><span class="pill"><span class="dot" style="background:${statusColor(c.status)}"></span>${esc(c.status || 'Lead')}</span></td>
+      <td class="readout text-right">${latestQuote(c.id) ? pesoShort(latestQuote(c.id)) : '<span class="text-mute">—</span>'}</td>
+      <td class="text-xs text-mute">${ago(c.updatedAt)}</td>
+      <td class="text-right whitespace-nowrap">
+        <button class="act rounded-md px-2 py-1 text-xs text-mint hover:bg-ink" data-act="quote" data-id="${esc(c.id)}">Quote</button>
+        <button class="act rounded-md px-2 py-1 text-xs text-mute hover:bg-ink hover:text-fog" data-act="edit" data-id="${esc(c.id)}">Edit</button>
+        <button class="act rounded-md px-2 py-1 text-xs text-rose hover:bg-ink" data-act="del" data-id="${esc(c.id)}">Delete</button>
+      </td>
+    </tr>`).join('');
+  const empty = !rows.length; $('#crmEmpty').classList.toggle('hidden', !empty);
+  if (empty) {
+    const loading = Store.mode === 'cloud' && !Store.loaded;
+    $('#crmEmptyTitle').textContent = loading ? 'Loading customers…' : cs.length ? 'No customers match' : 'No customers yet';
+    $('#crmEmptyText').textContent = loading ? 'Connecting to the shared database.' : cs.length ? 'Try another search or status.' : 'Add your first church or home client, or import a CSV.';
+  }
+  // client picker in the studio
+  const pick = $('#clientPick'), cur = pick.value;
+  pick.innerHTML = '<option value="">Fill from customer database…</option>' + [...cs].sort((a, b) => (a.name || '').localeCompare(b.name || '')).map(c => `<option value="${esc(c.id)}">${esc(c.name)}${c.city ? ' — ' + esc(c.city) : ''}</option>`).join('');
+  const want = (typeof D !== 'undefined' && D.customerId) || cur;
+  pick.value = cs.some(c => c.id === want) ? want : '';
+}
+$('#statusChips').addEventListener('click', e => { const b = e.target.closest('[data-status]'); if (!b) return; crmFilter.status = b.dataset.status; renderCustomers(); });
+$('#crmSearch').addEventListener('input', e => { crmFilter.q = e.target.value; renderCustomers(); });
+$('#crmType').addEventListener('change', e => { crmFilter.type = e.target.value; renderCustomers(); });
+$('#crmSort').addEventListener('change', e => { crmFilter.sort = e.target.value; renderCustomers(); });
+$('#crmBody').addEventListener('click', e => {
+  const a = e.target.closest('.act');
+  if (a) { e.stopPropagation(); const c = Store.customers.find(x => x.id === a.dataset.id); if (!c) return;
+    if (a.dataset.act === 'edit') openCustomerForm(c);
+    if (a.dataset.act === 'quote') startQuoteFor(c);
+    if (a.dataset.act === 'del') confirmBox('Delete ' + c.name + '?', 'This removes the customer record. Saved quotations and invoices for them are kept.', 'Delete customer', async () => { await Store.deleteCustomer(c.id); toast('Customer deleted'); });
+    return; }
+  const tr = e.target.closest('tr[data-id]'); if (tr) openDetail(tr.dataset.id);
+});
+
+$('#fStatus').innerHTML = STATUSES.map(s => `<option>${s.id}</option>`).join('');
+let editingId = null;
+function openCustomerForm(c) {
+  if (Store.readOnly) { toast('Read-only access'); return; }
+  editingId = c ? c.id : null; const f = $('#custForm'); f.reset();
+  $$('.err', f).forEach(x => x.classList.add('hidden')); $$('.field', f).forEach(x => x.classList.remove('invalid'));
+  $('#custModalTitle').textContent = c ? 'Edit customer' : 'New customer';
+  if (c) ['name', 'contact', 'email', 'phone', 'address', 'city', 'type', 'status', 'source', 'notes'].forEach(k => { if (f.elements[k]) f.elements[k].value = c[k] || (k === 'type' ? 'Church' : k === 'status' ? 'Lead' : ''); });
+  openModal('custModal');
+}
+$('#newCustomer').addEventListener('click', () => openCustomerForm(null));
+function validateField(el) {
+  const v = el.value.trim(); let ok = true;
+  if (el.name === 'name') ok = v.length > 0;
+  if (el.name === 'email') ok = !v || /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v);
+  if (el.name === 'phone') ok = !v || /^[+\d][\d\s\-()]{5,}$/.test(v);
+  el.classList.toggle('invalid', !ok); const err = el.parentElement.querySelector('.err'); if (err) err.classList.toggle('hidden', ok);
+  return ok;
+}
+['name', 'email', 'phone'].forEach(n => { const el = $('#custForm').elements[n]; el.addEventListener('blur', () => validateField(el)); el.addEventListener('input', () => { if (el.classList.contains('invalid')) validateField(el); }); });
+$('#custForm').addEventListener('submit', async e => {
+  e.preventDefault(); const f = e.target;
+  const ok = ['name', 'email', 'phone'].map(n => validateField(f.elements[n])).every(Boolean);
+  if (!ok) { f.querySelector('.invalid').focus(); return; }
+  const prev = editingId ? Store.customers.find(c => c.id === editingId) : null;
+  const c = prev ? JSON.parse(JSON.stringify(prev)) : { id: uid(), activity: [] };
+  ['name', 'contact', 'email', 'phone', 'address', 'city', 'type', 'status', 'source', 'notes'].forEach(k => c[k] = f.elements[k].value.trim());
+  c.activity = c.activity || [];
+  if (!prev) c.activity.unshift({ t: new Date().toISOString(), text: 'Customer added' });
+  else if (prev.status !== c.status) c.activity.unshift({ t: new Date().toISOString(), text: `Status changed: ${prev.status || 'Lead'} → ${c.status}` });
+  c.activity = c.activity.slice(0, 60);
+  $('#custSubmit').disabled = true;
+  try { await Store.saveCustomer(c); closeModal($('#custModal')); toast(prev ? 'Customer updated' : 'Customer added'); } catch (err) {}
+  $('#custSubmit').disabled = false;
+});
+
+function openDetail(id) {
+  const c = Store.customers.find(x => x.id === id); if (!c) return;
+  $('#detailTitle').textContent = c.name; $('#detailSub').textContent = [c.type, c.city].filter(Boolean).join(' · ');
+  const docs = Store.documents.filter(d => d.customerId === id).sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+  const row = (l, v) => v ? `<div><div class="lbl !mb-0.5">${l}</div><div class="text-sm">${esc(v)}</div></div>` : '';
+  $('#detailBody').innerHTML = `
+    <div class="flex flex-wrap items-center gap-2">${STATUSES.map(s => `<button class="pill ${c.status === s.id ? '!border-mint text-fog' : 'text-mute hover:text-fog'}" data-setstatus="${s.id}"><span class="dot" style="background:${s.color}"></span>${s.id}</button>`).join('')}</div>
+    <div class="mt-4 grid gap-3 sm:grid-cols-2">${row('Contact', c.contact)}${row('Phone', c.phone)}${row('Email', c.email)}${row('Address', c.address)}${row('Source', c.source)}${row('Added', fmtDate(c.createdAt))}</div>
+    ${c.notes ? `<div class="mt-4 rounded-xl bg-ink p-3 text-sm whitespace-pre-wrap">${esc(c.notes)}</div>` : ''}
+    <div class="mt-5"><div class="lbl">Documents</div>${docs.length ? docs.map(d => `<div class="flex items-center justify-between gap-2 rounded-lg bg-ink px-3 py-2 text-sm"><span><span class="readout">${esc(d.number)}</span> <span class="text-mute">${esc(docLabel(d.docType))} · ${fmtDate(d.date)}</span></span><span class="flex items-center gap-2"><span class="readout">${pesoShort(d.total)}</span><button class="rounded px-2 py-0.5 text-xs text-mint hover:bg-panel2" data-opendoc="${esc(d.id)}">Open</button></span></div>`).join('<div class="h-1.5"></div>') : '<p class="text-sm text-mute">No quotations or invoices yet.</p>'}</div>
+    <div class="mt-5"><div class="lbl">Activity</div>
+      <form id="noteForm" class="flex gap-2"><input id="noteIn" class="field" placeholder="Log a call, visit or follow-up…" aria-label="Activity note"><button class="btn btn-ghost text-xs">Add</button></form>
+      <div class="mt-2 max-h-48 space-y-1.5 overflow-auto scrolly">${(c.activity || []).map(a => `<div class="flex gap-3 text-sm"><span class="readout w-24 shrink-0 text-xs text-mute">${fmtDate(a.t)}</span><span>${esc(a.text)}</span></div>`).join('') || '<p class="text-sm text-mute">Nothing logged yet.</p>'}</div>
+    </div>
+    <div class="mt-6 flex flex-wrap justify-end gap-2"><button class="btn btn-ghost" id="dEdit">Edit details</button><button class="btn btn-primary" id="dQuote">New quotation</button></div>`;
+  $$('[data-setstatus]', $('#detailBody')).forEach(b => b.addEventListener('click', async () => {
+    if (Store.readOnly || b.dataset.setstatus === c.status) return;
+    const n = JSON.parse(JSON.stringify(c)); n.activity = [{ t: new Date().toISOString(), text: `Status changed: ${c.status || 'Lead'} → ${b.dataset.setstatus}` }, ...(n.activity || [])].slice(0, 60); n.status = b.dataset.setstatus;
+    try { await Store.saveCustomer(n); openDetail(id); } catch (e) {}
+  }));
+  $$('[data-opendoc]', $('#detailBody')).forEach(b => b.addEventListener('click', () => { closeModal($('#detailModal')); loadDocument(b.dataset.opendoc); }));
+  $('#noteForm').addEventListener('submit', async e => {
+    e.preventDefault(); const v = $('#noteIn').value.trim(); if (!v || Store.readOnly) return;
+    const n = JSON.parse(JSON.stringify(c)); n.activity = [{ t: new Date().toISOString(), text: v }, ...(n.activity || [])].slice(0, 60);
+    try { await Store.saveCustomer(n); openDetail(id); } catch (e) {}
+  });
+  $('#dEdit').addEventListener('click', () => { closeModal($('#detailModal')); openCustomerForm(c); });
+  $('#dQuote').addEventListener('click', () => { closeModal($('#detailModal')); startQuoteFor(c); });
+  if (!$('#detailModal').classList.contains('open')) openModal('detailModal');
+}
+
+/* CSV */
+const CSV_COLS = ['name', 'contact', 'email', 'phone', 'address', 'city', 'type', 'status', 'source', 'notes', 'createdAt', 'updatedAt'];
+function toCSV(rows) { const q = v => { const s = String(v ?? ''); return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; }; return [CSV_COLS.join(','), ...rows.map(r => CSV_COLS.map(k => q(r[k])).join(','))].join('\r\n'); }
+function parseCSV(text) {
+  const rows = []; let row = [], cur = '', q = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (q) { if (ch === '"') { if (text[i + 1] === '"') { cur += '"'; i++; } else q = false; } else cur += ch; }
+    else if (ch === '"') q = true; else if (ch === ',') { row.push(cur); cur = ''; }
+    else if (ch === '\n' || ch === '\r') { if (ch === '\r' && text[i + 1] === '\n') i++; row.push(cur); rows.push(row); row = []; cur = ''; }
+    else cur += ch;
+  }
+  if (cur || row.length) { row.push(cur); rows.push(row); }
+  return rows.filter(r => r.some(c => c.trim()));
+}
+$('#csvExport').addEventListener('click', () => { if (!Store.customers.length) { toast('No customers to export yet'); return; } saveFile('organworks-customers-' + todayISO() + '.csv', '﻿' + toCSV(Store.customers)); });
+$('#csvImport').addEventListener('change', async e => {
+  const file = e.target.files[0]; e.target.value = ''; if (!file) return;
+  const rows = parseCSV(await file.text()); if (rows.length < 2) { toast('That CSV has no rows'); return; }
+  const head = rows[0].map(h => h.trim().toLowerCase().replace(/^﻿/, ''));
+  const alias = { customer: 'name', organization: 'name', church: 'name', 'contact person': 'contact', mobile: 'phone', province: 'city' };
+  const idx = {}; head.forEach((h, i) => { const k = alias[h] || h; if (CSV_COLS.includes(k)) idx[k] = i; });
+  if (idx.name == null) { toast('The CSV needs a "name" column'); return; }
+  let n = 0;
+  for (const r of rows.slice(1)) {
+    const name = (r[idx.name] || '').trim(); if (!name) continue;
+    const c = { id: uid(), activity: [{ t: new Date().toISOString(), text: 'Imported from CSV' }] };
+    CSV_COLS.forEach(k => { if (idx[k] != null) c[k] = (r[idx[k]] || '').trim(); });
+    if (!STATUSES.some(s => s.id === c.status)) c.status = 'Lead';
+    if (!['Church', 'Home', 'School', 'Dealer', 'Other'].includes(c.type)) c.type = c.type ? 'Other' : 'Church';
+    try { await Store.saveCustomer(c); n++; } catch (err) { break; }
+  }
+  toast(`Imported ${n} customer${n === 1 ? '' : 's'}`);
+});
+
+/* =========================================================
+   Quotation & invoice studio
+   ========================================================= */
+// Placeholder catalogue: edit names and prices to match your own price list.
+const CATALOG = [
+  { id: 'console2', name: '2-manual console cabinet', desc: 'Solid-wood console shell with music desk, bench and stop jambs', price: 85000 },
+  { id: 'manual61', name: '61-note MIDI manual', desc: 'Velocity-sensing keyboard, mounted and wired', price: 18500 },
+  { id: 'raco', name: 'Raco pedalboard', desc: 'Radiating concave MIDI pedalboard, USB + 5-pin DIN. Free organ bench included', price: 38000 },
+  { id: 'parallel', name: 'Parallel pedalboard', desc: 'Parallel MIDI pedalboard, USB + 5-pin DIN. Free organ bench included', price: 35000 },
+  { id: 'concava', name: 'Concava Parallel pedalboard', desc: 'Concave parallel MIDI pedalboard, USB + 5-pin DIN. Free organ bench included', price: 35000 },
+  { id: 'pedalkit', name: '32-note pedal MIDI conversion kit', desc: 'ESP32-S3 controller, 2 × MCP23017, 32 hall sensors and magnets', price: 14500 },
+  { id: 'rocker8', name: 'Lighted stop-tab module (8 tabs)', desc: 'Rocker tabs with LED indicators, I²C', price: 6500 },
+  { id: 'piston8', name: 'Thumb piston module (8 lighted)', desc: 'Divisional / general pistons with RGB indicators', price: 4800 },
+  { id: 'toe6', name: 'Toe piston set (6)', desc: 'Foot pistons in printed housings', price: 5400 },
+  { id: 'expr', name: 'Expression shoe with hall sensor', desc: 'Swell or crescendo pedal, 16-bit reading', price: 7500 },
+  { id: 'io', name: 'Audio / MIDI I/O board', desc: '5-pin DIN, USB host, line outputs', price: 3800 },
+  { id: 'pc', name: 'Organ computer (GrandOrgue / Hauptwerk)', desc: 'Mini PC, 32 GB RAM, SSD, configured and sample sets installed', price: 38000 },
+  { id: 'touch', name: '15.6" touchscreen stop display', desc: 'Mounted on console', price: 14000 },
+  { id: 'monitors', name: 'Studio monitor pair', desc: 'Near-field speakers for practice rooms', price: 22000 },
+  { id: 'church_audio', name: 'Church audio: speakers + subwoofer', desc: 'Full-range cabinets and 12" sub for the pedal division', price: 68000 },
+  { id: 'install', name: 'Installation and voicing (per day)', desc: 'On-site setup, tuning of levels to the room', price: 12000 },
+  { id: 'training', name: 'Organist orientation', desc: 'Two-hour session for the music ministry', price: 3500 },
+  { id: 'delivery', name: 'Delivery and handling', desc: 'Packing, transport and carry-in', price: 5000 }
+];
+const PRESETS = {
+  church: { project: 'Church sanctuary virtual pipe organ', lines: [['console2', 1], ['manual61', 2], ['raco', 1], ['rocker8', 4], ['piston8', 2], ['toe6', 1], ['expr', 2], ['pc', 1], ['touch', 1], ['church_audio', 1], ['install', 3], ['training', 1], ['delivery', 1]],
+    overview: 'Supply and installation of a two-manual virtual pipe organ with a full 32-note pedalboard, sampled pipe sound and church-grade speakers, voiced to the sanctuary.' },
+  home: { project: 'Home practice organ', lines: [['manual61', 2], ['parallel', 1], ['expr', 1], ['pc', 1], ['monitors', 1], ['install', 1], ['delivery', 1]],
+    overview: 'A compact practice organ for home use: two manuals, a full pedalboard and studio monitors, ready to play GrandOrgue sample sets.' },
+  pedal: { project: 'MIDI pedalboard with organ bench', lines: [['raco', 1], ['delivery', 1]],
+    overview: 'A MIDI pedalboard with a free organ bench. It plugs into any computer or organ over USB MIDI (channel 1) or 5-pin DIN (channel 3). Choose Raco (radiating concave), Parallel or Concava Parallel.' },
+  blank: { project: '', lines: [], overview: '' }
+};
+const DEFAULT_TEXT = {
+  payment: 'Deposit due on signing to start fabrication. Balance due on delivery and acceptance. Payments by bank transfer or GCash to the account shown below.',
+  warranty: 'One-year warranty on electronics and workmanship from the date of installation. Free remote support for software setup during the warranty period.',
+  terms: 'Prices are in Philippine pesos. Lead time is confirmed on receipt of the deposit. Items supplied remain the property of the seller until paid in full. This quotation is valid until the date shown.'
+};
+const DEFAULT_BIZ = { name: 'OrganWorks PH', tagline: 'Virtual pipe organs · MIDI pedalboards · Philippines', address: '', email: '', phone: '', tin: '', signatory: '', bank: '' };
+const docLabel = (t) => ({ quotation: 'Quotation & Proposal', invoice: 'Invoice', proforma: 'Proforma Invoice' }[t] || 'Document');
+const prefix = (t) => ({ quotation: 'Q', invoice: 'INV', proforma: 'PI' }[t] || 'DOC');
+function nextNumber(type) {
+  const y = new Date().getFullYear(), p = prefix(type) + '-' + y + '-';
+  const max = Store.documents.filter(d => (d.number || '').startsWith(p)).map(d => parseInt(d.number.slice(p.length), 10) || 0).reduce((a, b) => Math.max(a, b), 0);
+  return p + String(max + 1).padStart(3, '0');
+}
+const lineFrom = (id, qty) => { const c = CATALOG.find(x => x.id === id); return { id: uid(), name: c.name, desc: c.desc, qty, price: c.price }; };
+function blankDoc(preset = 'church', type = 'quotation') {
+  const p = PRESETS[preset], d = todayISO();
+  return { id: null, docType: type, preset, number: nextNumber(type), date: d, validUntil: addDays(d, type === 'quotation' ? 30 : 15), customerId: '',
+    client: { name: '', rep: '', address: '', contact: '' }, project: { name: p.project, venue: '' }, overview: p.overview,
+    lines: p.lines.map(([id, q]) => lineFrom(id, q)), discount: 0, tax: 12, deposit: 50, paid: 0, ...DEFAULT_TEXT };
+}
+let D = ls.get('owph.draft', null) || blankDoc();
+let biz = { ...DEFAULT_BIZ };
+
+function totals(d) {
+  const sub = d.lines.reduce((s, l) => s + (Number(l.qty) || 0) * (Number(l.price) || 0), 0);
+  const disc = Math.min(Number(d.discount) || 0, sub), taxable = sub - disc, tax = taxable * (Number(d.tax) || 0) / 100, total = taxable + tax;
+  const dep = total * (Number(d.deposit) || 0) / 100, paid = Number(d.paid) || 0;
+  return { sub, disc, tax, total, dep, paid, bal: Math.max(total - paid, 0) };
+}
+function fillForm() {
+  $('#docType').value = D.docType; $('#preset').value = D.preset || 'blank'; $('#docNo').value = D.number; $('#docDate').value = D.date; $('#docValid').value = D.validUntil;
+  $('#docValidLbl').textContent = D.docType === 'quotation' ? 'Valid until' : 'Due date';
+  $$('.cl').forEach(el => el.value = D.client[el.dataset.k] || '');
+  $$('.pj').forEach(el => el.value = D.project[el.dataset.k] || '');
+  $$('.tx').forEach(el => el.value = D[el.dataset.k] || '');
+  $$('.tot').forEach(el => el.value = D[el.dataset.k] ?? 0);
+  $('#clientPick').value = D.customerId || '';
+  renderLines(); renderLinked(); renderPaper();
+}
+function renderLinked() {
+  const c = Store.customers.find(x => x.id === D.customerId);
+  $('#clientLinked').classList.toggle('hidden', !c); if (c) $('#clientLinked').textContent = '● Linked to customer: ' + c.name;
+  $('#clientToDb').classList.toggle('hidden', !!c || !D.client.name.trim());
+}
+function renderLines() {
+  $('#linesBody').innerHTML = D.lines.map(l => `
+    <tr data-lid="${l.id}">
+      <td><input class="field !py-1.5 !text-xs lf" data-f="name" value="${esc(l.name)}" aria-label="Component name"><input class="field mt-1 !py-1 !text-[11px] text-mute lf" data-f="desc" value="${esc(l.desc)}" placeholder="Description" aria-label="Description"></td>
+      <td><input type="number" min="0" step="1" class="field !px-2 !py-1.5 !text-xs lf" data-f="qty" value="${l.qty}" aria-label="Quantity"></td>
+      <td><input type="number" min="0" step="0.01" class="field !px-2 !py-1.5 !text-xs lf" data-f="price" value="${l.price}" aria-label="Unit price"></td>
+      <td class="readout text-right text-xs">${pesoShort((Number(l.qty) || 0) * (Number(l.price) || 0))}</td>
+      <td><button class="rounded p-1 text-mute hover:text-rose rm" aria-label="Remove line"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button></td>
+    </tr>`).join('') || '<tr><td colspan="5" class="py-6 text-center text-mute">No components yet. Pick one above or add a blank line.</td></tr>';
+}
+function changed() { ls.set('owph.draft', D); renderPaper(); }
+$('#linesBody').addEventListener('input', e => {
+  const tr = e.target.closest('tr[data-lid]'); if (!tr || !e.target.classList.contains('lf')) return;
+  const l = D.lines.find(x => x.id === tr.dataset.lid); const f = e.target.dataset.f;
+  l[f] = (f === 'qty' || f === 'price') ? (parseFloat(e.target.value) || 0) : e.target.value;
+  if (f === 'qty' || f === 'price') tr.children[3].textContent = pesoShort(l.qty * l.price);
+  changed();
+});
+$('#linesBody').addEventListener('click', e => { const b = e.target.closest('.rm'); if (!b) return; const id = b.closest('tr').dataset.lid; D.lines = D.lines.filter(l => l.id !== id); renderLines(); changed(); });
+$('#catalogPick').innerHTML = CATALOG.map(c => `<option value="${c.id}">${esc(c.name)} — ${pesoShort(c.price)}</option>`).join('');
+$('#addSel').addEventListener('click', () => { const id = $('#catalogPick').value; const ex = D.lines.find(l => l.name === CATALOG.find(c => c.id === id).name); if (ex) ex.qty = (Number(ex.qty) || 0) + 1; else D.lines.push(lineFrom(id, 1)); renderLines(); changed(); });
+$('#addBlank').addEventListener('click', () => { D.lines.push({ id: uid(), name: '', desc: '', qty: 1, price: 0 }); renderLines(); changed(); const ins = $$('#linesBody input[data-f="name"]'); ins[ins.length - 1].focus(); });
+$('#clearLines').addEventListener('click', () => { if (!D.lines.length) return; confirmBox('Clear all components?', 'Every line in this document will be removed.', 'Clear all', () => { D.lines = []; renderLines(); changed(); }); });
+$('#docType').addEventListener('change', e => { D.docType = e.target.value; if (!D.id) D.number = nextNumber(D.docType); D.validUntil = addDays(D.date, D.docType === 'quotation' ? 30 : 15); fillForm(); changed(); });
+$('#preset').addEventListener('change', e => {
+  const p = e.target.value; const apply = () => { D.preset = p; D.lines = PRESETS[p].lines.map(([id, q]) => lineFrom(id, q)); D.project.name = PRESETS[p].project || D.project.name; D.overview = PRESETS[p].overview; fillForm(); changed(); };
+  if (D.lines.length) confirmBox('Replace components?', 'Loading the "' + e.target.selectedOptions[0].text + '" preset replaces the current lines and overview.', 'Load preset', apply); else apply();
+  e.target.value = D.preset || 'blank';
+});
+$('#docNo').addEventListener('input', e => { D.number = e.target.value; changed(); });
+$('#docDate').addEventListener('change', e => { D.date = e.target.value; changed(); });
+$('#docValid').addEventListener('change', e => { D.validUntil = e.target.value; changed(); });
+$$('.cl').forEach(el => el.addEventListener('input', () => { D.client[el.dataset.k] = el.value; renderLinked(); changed(); }));
+$$('.pj').forEach(el => el.addEventListener('input', () => { D.project[el.dataset.k] = el.value; changed(); }));
+$$('.tx').forEach(el => el.addEventListener('input', () => { D[el.dataset.k] = el.value; changed(); }));
+$$('.tot').forEach(el => el.addEventListener('input', () => { D[el.dataset.k] = parseFloat(el.value) || 0; changed(); }));
+function clientFromCustomer(c) {
+  D.customerId = c.id;
+  D.client = { name: c.name || '', rep: c.contact || '', address: [c.address, c.city].filter(Boolean).join(', '), contact: [c.email, c.phone].filter(Boolean).join(' / ') };
+}
+$('#clientPick').addEventListener('change', e => { const c = Store.customers.find(x => x.id === e.target.value); if (!c) { D.customerId = ''; renderLinked(); changed(); return; } clientFromCustomer(c); fillForm(); changed(); });
+$('#clientToDb').addEventListener('click', async () => {
+  if (Store.readOnly) return;
+  const c = { id: uid(), name: D.client.name.trim(), contact: D.client.rep.trim(), address: D.client.address.trim(), city: '', type: 'Church', status: 'Lead', source: '', notes: '', activity: [{ t: new Date().toISOString(), text: 'Added from the quotation studio' }] };
+  const m = (D.client.contact || '').match(/[^\s@/]+@[^\s@/]+\.[^\s@/]+/); if (m) c.email = m[0];
+  const ph = (D.client.contact || '').replace(m ? m[0] : '', '').replace(/[\/]/g, ' ').trim(); if (ph) c.phone = ph;
+  try { await Store.saveCustomer(c); D.customerId = c.id; changed(); renderLinked(); toast('Client saved to the database'); } catch (e) {}
+});
+function startQuoteFor(c) {
+  D = blankDoc('blank', 'quotation'); D.preset = 'blank'; clientFromCustomer(c);
+  D.project.name = c.type === 'Home' ? 'Home practice organ' : c.type === 'Church' ? 'Church sanctuary virtual pipe organ' : '';
+  fillForm(); changed(); document.getElementById('studio').scrollIntoView({ behavior: 'smooth' }); toast('New quotation for ' + c.name + '. Pick a preset or add components.');
+}
+
+/* Business details */
+function fillBusiness() { biz = { ...DEFAULT_BIZ, ...(Store.business || {}) }; $$('.biz').forEach(el => el.value = biz[el.dataset.k] || ''); renderPaper(); }
+$$('.biz').forEach(el => el.addEventListener('input', () => { biz[el.dataset.k] = el.value; renderPaper(); }));
+$('#saveBiz').addEventListener('click', async () => { try { await Store.saveBusiness({ ...biz }); toast('Business details saved'); } catch (e) {} });
+
+/* Preview */
+const LOGO_SVG = `<svg width="44" height="44" viewBox="0 0 32 32"><rect width="32" height="32" rx="8" fill="#111a1c"/><g fill="#5fd3b5"><rect x="6" y="12" width="3" height="14" rx="1.5"/><rect x="10.5" y="8" width="3" height="18" rx="1.5"/><rect x="15" y="5" width="3" height="21" rx="1.5"/><rect x="19.5" y="8" width="3" height="18" rx="1.5"/><rect x="24" y="12" width="3" height="14" rx="1.5"/></g></svg>`;
+const nl2br = (s) => esc(s).replace(/\n/g, '<br>');
+function renderPaper() {
+  const t = totals(D), isQ = D.docType === 'quotation';
+  $('#previewTotal').textContent = 'Total ' + peso(t.total);
+  $('#paper').innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:24px">
+      <div style="display:flex;gap:12px;align-items:center">${LOGO_SVG}<div><div style="font-weight:800;font-size:17px;letter-spacing:.04em">${esc(biz.name || 'OrganWorks PH')}</div><div style="color:#5b6b67;font-size:11px">${esc(biz.tagline)}</div></div></div>
+      <div style="text-align:right;color:#5b6b67;font-size:10.5px;line-height:1.55">${[biz.address, biz.phone, biz.email, biz.tin ? 'TIN ' + biz.tin : ''].filter(Boolean).map(esc).join('<br>')}</div>
+    </div>
+    <div style="margin-top:28px;display:flex;justify-content:space-between;align-items:flex-end;border-bottom:3px solid #111a1c;padding-bottom:10px">
+      <h1 style="font-size:28px;margin:0;font-weight:600">${esc(docLabel(D.docType))}</h1>
+      <table style="width:auto;font-size:11px"><tr><td style="border:0;padding:1px 10px;color:#5b6b67">No.</td><td style="border:0;padding:1px 0;font-weight:700;font-family:'JetBrains Mono',monospace">${esc(D.number)}</td></tr>
+      <tr><td style="border:0;padding:1px 10px;color:#5b6b67">Date</td><td style="border:0;padding:1px 0">${fmtDate(D.date)}</td></tr>
+      <tr><td style="border:0;padding:1px 10px;color:#5b6b67">${isQ ? 'Valid until' : 'Due'}</td><td style="border:0;padding:1px 0">${fmtDate(D.validUntil)}</td></tr></table>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-top:18px">
+      <div><div class="sec" style="margin-top:0">${isQ ? 'Prepared for' : 'Bill to'}</div><div style="font-weight:700;font-size:13px">${esc(D.client.name) || '<span style="color:#9aa8a4">Client name</span>'}</div>
+        <div>${D.client.rep ? 'Attn: ' + esc(D.client.rep) + '<br>' : ''}${esc(D.client.address)}${D.client.contact ? '<br>' + esc(D.client.contact) : ''}</div></div>
+      <div><div class="sec" style="margin-top:0">Project</div><div style="font-weight:700;font-size:13px">${esc(D.project.name) || '<span style="color:#9aa8a4">Project name</span>'}</div><div>${esc(D.project.venue)}</div></div>
+    </div>
+    ${D.overview ? `<div class="sec">Project overview</div><div>${nl2br(D.overview)}</div>` : ''}
+    <div class="sec">${isQ ? 'Inclusions and pricing' : 'Items'}</div>
+    <table><thead><tr><th style="width:44%">Component</th><th style="text-align:center">Qty</th><th style="text-align:right">Unit price</th><th style="text-align:right">Amount</th></tr></thead><tbody>
+      ${D.lines.map(l => `<tr><td><div style="font-weight:600">${esc(l.name) || '—'}</div>${l.desc ? `<div style="color:#5b6b67;font-size:10.5px">${esc(l.desc)}</div>` : ''}</td><td style="text-align:center">${Number(l.qty) || 0}</td><td style="text-align:right">${peso(l.price)}</td><td style="text-align:right;font-weight:600">${peso((Number(l.qty) || 0) * (Number(l.price) || 0))}</td></tr>`).join('') || '<tr><td colspan="4" style="color:#9aa8a4;text-align:center;padding:18px">No items</td></tr>'}
+    </tbody></table>
+    <div style="display:flex;justify-content:flex-end;margin-top:12px">
+      <table style="width:300px;font-size:12px">
+        <tr><td style="border:0;padding:3px 8px;color:#5b6b67">Subtotal</td><td style="border:0;padding:3px 8px;text-align:right">${peso(t.sub)}</td></tr>
+        ${t.disc ? `<tr><td style="border:0;padding:3px 8px;color:#5b6b67">Discount</td><td style="border:0;padding:3px 8px;text-align:right">−${peso(t.disc)}</td></tr>` : ''}
+        <tr><td style="border:0;padding:3px 8px;color:#5b6b67">Tax (${Number(D.tax) || 0}%)</td><td style="border:0;padding:3px 8px;text-align:right">${peso(t.tax)}</td></tr>
+        <tr><td style="border-top:2px solid #111a1c;border-bottom:0;padding:7px 8px;font-weight:800;font-size:14px">Total</td><td style="border-top:2px solid #111a1c;border-bottom:0;padding:7px 8px;text-align:right;font-weight:800;font-size:14px">${peso(t.total)}</td></tr>
+        ${Number(D.deposit) ? `<tr><td style="border:0;padding:3px 8px;color:#5b6b67">Required deposit (${Number(D.deposit)}%)</td><td style="border:0;padding:3px 8px;text-align:right">${peso(t.dep)}</td></tr>` : ''}
+        ${t.paid ? `<tr><td style="border:0;padding:3px 8px;color:#5b6b67">Amount paid</td><td style="border:0;padding:3px 8px;text-align:right">−${peso(t.paid)}</td></tr>` : ''}
+        <tr><td style="border:0;padding:3px 8px;font-weight:700;color:#2f9e84">Remaining balance</td><td style="border:0;padding:3px 8px;text-align:right;font-weight:700;color:#2f9e84">${peso(t.bal)}</td></tr>
+      </table>
+    </div>
+    ${D.payment ? `<div class="sec">Payment terms</div><div>${nl2br(D.payment)}</div>` : ''}
+    ${biz.bank ? `<div style="margin-top:6px;padding:8px 10px;background:#f2f6f5;border-radius:6px">${nl2br(biz.bank)}</div>` : ''}
+    ${D.warranty ? `<div class="sec">Warranty and support</div><div>${nl2br(D.warranty)}</div>` : ''}
+    ${D.terms ? `<div class="sec">Terms and conditions</div><div style="font-size:11px;color:#3d4a47">${nl2br(D.terms)}</div>` : ''}
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:40px;margin-top:46px">
+      <div><div style="border-top:1px solid #1d2422;padding-top:6px;font-weight:700">${esc(biz.signatory) || '&nbsp;'}</div><div style="color:#5b6b67;font-size:10.5px">For ${esc(biz.name || 'OrganWorks PH')}</div></div>
+      <div><div style="border-top:1px solid #1d2422;padding-top:6px;font-weight:700">${esc(D.client.rep) || '&nbsp;'}</div><div style="color:#5b6b67;font-size:10.5px">${isQ ? 'Accepted by' : 'Received by'} ${esc(D.client.name)} · Date: __________</div></div>
+    </div>`;
+  scalePaper();
+}
+function scalePaper() {
+  const wrap = $('#paperWrap'), paper = $('#paper'), holder = $('#paperScale');
+  const avail = wrap.clientWidth - 32, s = Math.min(1, avail / 794);
+  paper.style.transform = `scale(${s})`; holder.style.height = (paper.offsetHeight * s) + 'px'; holder.style.width = (794 * s) + 'px'; holder.style.margin = '0 auto';
+}
+window.addEventListener('resize', scalePaper);
+
+/* Saved documents */
+function renderDocList() {
+  const ds = [...Store.documents].sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
+  $('#docList').innerHTML = ds.length ? ds.map(d => `<div class="flex items-center justify-between gap-2 rounded-lg bg-ink px-3 py-2 text-xs ${d.id === D.id ? 'ring-1 ring-mint/50' : ''}">
+      <span class="min-w-0 truncate"><span class="readout text-fog">${esc(d.number)}</span> <span class="text-mute">${esc(d.client && d.client.name || 'No client')} · ${pesoShort(d.total)}</span></span>
+      <span class="flex shrink-0 gap-1"><button class="rounded px-2 py-0.5 text-mint hover:bg-panel2" data-load="${esc(d.id)}">Open</button><button class="rounded px-2 py-0.5 text-rose hover:bg-panel2" data-deldoc="${esc(d.id)}">Delete</button></span></div>`).join('')
+    : '<p class="text-xs text-mute">Nothing saved yet.</p>';
+}
+$('#docList').addEventListener('click', e => {
+  const l = e.target.closest('[data-load]'); if (l) { loadDocument(l.dataset.load); return; }
+  const x = e.target.closest('[data-deldoc]'); if (x) { const d = Store.documents.find(z => z.id === x.dataset.deldoc); confirmBox('Delete ' + (d ? d.number : 'document') + '?', 'This removes the saved document from the database.', 'Delete', async () => { await Store.deleteDocument(x.dataset.deldoc); if (D.id === x.dataset.deldoc) D.id = null; toast('Document deleted'); }); }
+});
+function loadDocument(id) {
+  const d = Store.documents.find(x => x.id === id); if (!d) return;
+  D = JSON.parse(JSON.stringify(d)); delete D.total; delete D.createdAt; delete D.updatedAt; D.id = d.id; D._createdAt = d.createdAt;
+  fillForm(); changed(); renderDocList(); document.getElementById('studio').scrollIntoView({ behavior: 'smooth' });
+}
+$('#saveRecord').addEventListener('click', async () => {
+  if (!D.client.name.trim()) { toast('Add the client name first'); $('#cName').focus(); return; }
+  if (!D.lines.length) { toast('Add at least one component'); return; }
+  const btn = $('#saveRecord'); btn.disabled = true;
+  try {
+    if (!D.customerId) { // create the customer automatically so the document is filed somewhere
+      const match = Store.customers.find(c => (c.name || '').trim().toLowerCase() === D.client.name.trim().toLowerCase());
+      if (match) D.customerId = match.id;
+      else { const c = { id: uid(), name: D.client.name.trim(), contact: D.client.rep.trim(), address: D.client.address.trim(), city: '', type: 'Church', status: 'Lead', source: '', notes: '', activity: [{ t: new Date().toISOString(), text: 'Added from the quotation studio' }] }; await Store.saveCustomer(c); D.customerId = c.id; }
+    }
+    const isNew = !D.id; if (isNew) D.id = uid();
+    const t = totals(D); const rec = JSON.parse(JSON.stringify(D)); rec.total = t.total; if (D._createdAt) rec.createdAt = D._createdAt; delete rec._createdAt;
+    await Store.saveDocument(rec);
+    const c = Store.customers.find(x => x.id === D.customerId);
+    if (c) {
+      const n = JSON.parse(JSON.stringify(c));
+      n.activity = [{ t: new Date().toISOString(), text: `${isNew ? 'Created' : 'Updated'} ${docLabel(D.docType).toLowerCase()} ${D.number} (${pesoShort(t.total)})` }, ...(n.activity || [])].slice(0, 60);
+      if (isNew && D.docType === 'quotation' && (!n.status || n.status === 'Lead')) n.status = 'Quoted';
+      if (isNew && D.docType === 'invoice' && ['Lead', 'Quoted'].includes(n.status)) n.status = 'Won';
+      await Store.saveCustomer(n);
+    }
+    changed(); renderLinked(); renderDocList(); toast('Saved ' + D.number + ' to ' + (c ? c.name : 'the customer record'));
+  } catch (e) {}
+  btn.disabled = false;
+});
+$('#saveDraft').addEventListener('click', () => { toast(ls.set('owph.draft', D) ? 'Draft saved in this browser' : 'This browser blocked saving the draft'); });
+$('#resetDoc').addEventListener('click', () => confirmBox('Start a new document?', 'The form returns to the Church Sanctuary preset. Saved documents are not affected.', 'Start new', () => { D = blankDoc(); fillForm(); changed(); renderDocList(); }));
+
+async function renderCanvas() {
+  if (!window.html2canvas) throw new Error('html2canvas did not load');
+  const paper = $('#paper'); const prev = paper.style.transform; paper.style.transform = 'none';
+  try { return await window.html2canvas(paper, { scale: 2, backgroundColor: '#ffffff', useCORS: true, windowWidth: 900 }); }
+  finally { paper.style.transform = prev; }
+}
+$('#dlPdf').addEventListener('click', async () => {
+  const btn = $('#dlPdf'); btn.disabled = true; btn.textContent = 'Building PDF…';
+  try {
+    const canvas = await renderCanvas(); const { jsPDF } = window.jspdf;
+    const pdf = new jsPDF({ unit: 'mm', format: 'a4', compress: true }); const pw = 210, ph = 297;
+    const pagePx = Math.floor(canvas.width * ph / pw); let y = 0, page = 0;
+    while (y < canvas.height) {
+      const h = Math.min(pagePx, canvas.height - y); const c = document.createElement('canvas'); c.width = canvas.width; c.height = h;
+      const cx = c.getContext('2d'); cx.fillStyle = '#fff'; cx.fillRect(0, 0, c.width, h); cx.drawImage(canvas, 0, y, canvas.width, h, 0, 0, canvas.width, h);
+      if (page) pdf.addPage(); pdf.addImage(c.toDataURL('image/jpeg', 0.92), 'JPEG', 0, 0, pw, h * pw / canvas.width); y += pagePx; page++;
+    }
+    await saveFile(D.number + '.pdf', pdf.output('blob'));
+  } catch (e) { toast('PDF export failed: ' + e.message); }
+  btn.disabled = false; btn.textContent = 'Download PDF';
+});
+$('#dlPng').addEventListener('click', async () => {
+  const btn = $('#dlPng'); btn.disabled = true;
+  try { const canvas = await renderCanvas(); const blob = await new Promise(r => canvas.toBlob(r, 'image/png')); await saveFile(D.number + '.png', blob); }
+  catch (e) { toast('PNG export failed: ' + e.message); }
+  btn.disabled = false;
+});
+
+
+/* =========================================================
+   Accounting: income, expenses, receivables
+   ========================================================= */
+const INCOME_CATS = ['Organ / console sale', 'Pedalboard sale', 'Installation & voicing', 'Repair & service', 'Parts & kits sale', 'Hymn arrangement & engraving', 'Training', 'Other income'];
+const EXPENSE_CATS = ['Electronic parts', 'PCB fabrication & assembly', 'Wood & console materials', 'Keyboards & pedalboards', 'Computers & displays', 'Speakers & audio', 'Shipping & delivery', 'Transport & fuel', 'Tools & equipment', 'Software & sample sets', 'Wages & labor', 'Rent & utilities', 'Marketing', 'Taxes, permits & fees', 'Other expense'];
+const CAT_COLORS = ['#5fd3b5', '#f2b84b', '#7aa7ff', '#c58cf0', '#f07a6a', '#8fd16a', '#e98fc4', '#6fd0e8', '#d9a066', '#a3b4b0', '#b59cf5', '#f5d76e', '#7fb3a8', '#e7826a', '#93a1a1'];
+let bk = { period: 'year', q: '', type: '', cat: '' };
+const docPaid = (docId) => Store.transactions.filter(t => t.type === 'income' && t.docId === docId).reduce((s, t) => s + (Number(t.amount) || 0), 0);
+const docBalance = (d) => Math.max((Number(d.total) || 0) - (Number(d.paid) || 0) - docPaid(d.id), 0);
+function periodRange(p) {
+  const now = new Date(), y = now.getFullYear(), m = now.getMonth();
+  const iso = (d) => { const z = new Date(d); z.setMinutes(z.getMinutes() - z.getTimezoneOffset()); return z.toISOString().slice(0, 10); };
+  switch (p) {
+    case 'month': return [iso(new Date(y, m, 1)), iso(new Date(y, m + 1, 0)), now.toLocaleDateString('en-PH', { month: 'long', year: 'numeric' })];
+    case 'lastmonth': { const s = new Date(y, m - 1, 1); return [iso(s), iso(new Date(y, m, 0)), s.toLocaleDateString('en-PH', { month: 'long', year: 'numeric' })]; }
+    case 'quarter': { const q = Math.floor(m / 3); return [iso(new Date(y, q * 3, 1)), iso(new Date(y, q * 3 + 3, 0)), 'Q' + (q + 1) + ' ' + y]; }
+    case 'year': return [y + '-01-01', y + '-12-31', String(y)];
+    case 'lastyear': return [(y - 1) + '-01-01', (y - 1) + '-12-31', String(y - 1)];
+    default: return ['0000-01-01', '9999-12-31', 'all time'];
+  }
+}
+const custName = (t) => { const c = Store.customers.find(x => x.id === t.customerId); return c ? c.name : (t.party || ''); };
+function renderBooks() {
+  const [from, to, label] = periodRange(bk.period);
+  const all = Store.transactions;
+  const inP = all.filter(t => t.date >= from && t.date <= to);
+  const sum = (arr, type) => arr.filter(t => t.type === type).reduce((s, t) => s + (Number(t.amount) || 0), 0);
+  const inc = sum(inP, 'income'), exp = sum(inP, 'expense'), net = inc - exp;
+  const openInv = Store.documents.filter(d => d.docType === 'invoice' && docBalance(d) > 0.005);
+  const ar = openInv.reduce((s, d) => s + docBalance(d), 0);
+  $('#bkStats').innerHTML = [
+    ['Income · ' + label, pesoShort(inc), '#5fd3b5'], ['Expenses · ' + label, pesoShort(exp), '#f07a6a'],
+    ['Net profit', (net < 0 ? '−' : '') + pesoShort(Math.abs(net)), net >= 0 ? '#f2b84b' : '#f07a6a'],
+    ['Profit margin', inc ? Math.round(net / inc * 100) + '%' : '—', '#e5eeeb'], ['Owed to you', pesoShort(ar), '#f2b84b']
+  ].map(([l, v, c]) => `<div class="card px-4 py-3"><div class="readout text-xl font-semibold" style="color:${c}">${v}</div><div class="truncate text-xs text-mute">${esc(l)}</div></div>`).join('');
+
+  // 12-month chart
+  const now = new Date(); const months = [];
+  for (let i = 11; i >= 0; i--) { const d = new Date(now.getFullYear(), now.getMonth() - i, 1); months.push({ key: d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'), label: d.toLocaleDateString('en-PH', { month: 'short' }), inc: 0, exp: 0 }); }
+  all.forEach(t => { const mo = months.find(x => (t.date || '').startsWith(x.key)); if (mo) mo[t.type === 'income' ? 'inc' : 'exp'] += Number(t.amount) || 0; });
+  const W = 640, H = 220, pad = { l: 56, r: 10, t: 10, b: 26 }, iw = W - pad.l - pad.r, ih = H - pad.t - pad.b;
+  const maxV = Math.max(1, ...months.map(m => Math.max(m.inc, m.exp)));
+  const nice = (v) => { const e = Math.pow(10, Math.floor(Math.log10(v))); const f = v / e; return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 5 ? 5 : 10) * e; };
+  const top = nice(maxV), yv = (v) => pad.t + ih - (v / top) * ih, bw = iw / 12;
+  const short = (v) => v >= 1e6 ? '₱' + (v / 1e6).toFixed(v % 1e6 ? 1 : 0) + 'M' : v >= 1e3 ? '₱' + Math.round(v / 1e3) + 'k' : '₱' + v;
+  let svg = `<svg viewBox="0 0 ${W} ${H}" class="w-full" role="img" aria-label="Monthly income and expenses for the last 12 months">`;
+  for (let i = 0; i <= 4; i++) { const v = top * i / 4, y = yv(v); svg += `<line x1="${pad.l}" x2="${W - pad.r}" y1="${y}" y2="${y}" stroke="#223235" stroke-width="1"/><text x="${pad.l - 8}" y="${y + 4}" text-anchor="end" font-size="10" fill="#8ea6a1" font-family="JetBrains Mono">${short(v)}</text>`; }
+  const pts = [];
+  months.forEach((m, i) => {
+    const x0 = pad.l + i * bw, w = bw * 0.32;
+    svg += `<g><title>${m.label}: income ${pesoShort(m.inc)}, expenses ${pesoShort(m.exp)}, net ${pesoShort(m.inc - m.exp)}</title>`;
+    svg += `<rect x="${x0 + bw * 0.16}" y="${yv(m.inc)}" width="${w}" height="${Math.max(0, pad.t + ih - yv(m.inc))}" rx="2" fill="#5fd3b5"/>`;
+    svg += `<rect x="${x0 + bw * 0.52}" y="${yv(m.exp)}" width="${w}" height="${Math.max(0, pad.t + ih - yv(m.exp))}" rx="2" fill="#f07a6a"/>`;
+    svg += `<rect x="${x0}" y="${pad.t}" width="${bw}" height="${ih}" fill="transparent"/></g>`;
+    svg += `<text x="${x0 + bw / 2}" y="${H - 8}" text-anchor="middle" font-size="10" fill="#8ea6a1">${m.label}</text>`;
+    pts.push([x0 + bw / 2, yv(Math.max(0, m.inc - m.exp))]);
+  });
+  svg += `<polyline points="${pts.map(p => p.join(',')).join(' ')}" fill="none" stroke="#f2b84b" stroke-width="2" stroke-linejoin="round"/>`;
+  pts.forEach(p => svg += `<circle cx="${p[0]}" cy="${p[1]}" r="2.5" fill="#f2b84b"/>`);
+  svg += '</svg>';
+  $('#bkChart').innerHTML = all.length ? svg : '<div class="flex h-48 items-center justify-center rounded-xl bg-ink text-sm text-mute">The chart fills in as you record transactions.</div>';
+
+  // expense categories
+  $('#bkCatPeriod').textContent = '· ' + label;
+  const byCat = {}; inP.filter(t => t.type === 'expense').forEach(t => { byCat[t.category] = (byCat[t.category] || 0) + (Number(t.amount) || 0); });
+  const cats = Object.entries(byCat).sort((a, b) => b[1] - a[1]);
+  $('#bkCats').innerHTML = cats.length ? cats.map(([c, v]) => { const col = CAT_COLORS[EXPENSE_CATS.indexOf(c) % CAT_COLORS.length] || '#93a1a1'; return `<div><div class="flex justify-between text-xs"><span>${esc(c)}</span><span class="readout text-mute">${pesoShort(v)} · ${Math.round(v / exp * 100)}%</span></div><div class="mt-1 h-2 rounded-full bg-ink"><div class="h-2 rounded-full" style="width:${Math.max(2, v / cats[0][1] * 100)}%;background:${col}"></div></div></div>`; }).join('') : '<p class="text-sm text-mute">No expenses in this period.</p>';
+
+  // P&L
+  $('#bkPlPeriod').textContent = '· ' + label;
+  const incCats = {}; inP.filter(t => t.type === 'income').forEach(t => { incCats[t.category] = (incCats[t.category] || 0) + (Number(t.amount) || 0); });
+  const line = (l, v, cls = '') => `<div class="flex justify-between py-1 ${cls}"><span>${esc(l)}</span><span class="readout">${v < 0 ? '−' : ''}${peso(Math.abs(v))}</span></div>`;
+  $('#bkPl').innerHTML = `<div class="lbl !mb-1">Income</div>${Object.entries(incCats).sort((a, b) => b[1] - a[1]).map(([c, v]) => line(c, v, 'text-mute')).join('') || '<div class="py-1 text-mute">None</div>'}
+    ${line('Total income', inc, 'border-t border-line font-semibold')}
+    <div class="lbl !mb-1 mt-3">Expenses</div>${cats.map(([c, v]) => line(c, v, 'text-mute')).join('') || '<div class="py-1 text-mute">None</div>'}
+    ${line('Total expenses', exp, 'border-t border-line font-semibold')}
+    ${line(net >= 0 ? 'Net profit' : 'Net loss', net, 'mt-2 border-t-2 border-fog/40 pt-2 text-base font-bold ' + (net >= 0 ? 'text-amber' : 'text-rose'))}`;
+
+  // receivables
+  $('#bkArTotal').textContent = ar ? pesoShort(ar) : '';
+  $('#bkAr').innerHTML = openInv.length ? openInv.sort((a, b) => (a.validUntil || '').localeCompare(b.validUntil || '')).map(d => {
+    const overdue = d.validUntil && d.validUntil < todayISO();
+    return `<div class="flex items-center justify-between gap-2 rounded-lg bg-ink px-3 py-2 text-xs">
+      <span class="min-w-0"><span class="readout text-fog">${esc(d.number)}</span> <span class="text-mute">${esc(d.client && d.client.name || '')}</span><br><span class="${overdue ? 'text-rose' : 'text-mute'}">${overdue ? 'Overdue since ' : 'Due '}${fmtDate(d.validUntil)}</span></span>
+      <span class="flex shrink-0 items-center gap-2"><span class="readout text-amber">${pesoShort(docBalance(d))}</span><button class="rounded bg-mint/10 px-2 py-1 font-semibold text-mint hover:bg-mint/20" data-pay="${esc(d.id)}">Record payment</button></span></div>`;
+  }).join('') : '<p class="text-sm text-mute">No unpaid invoices. Invoices saved in the studio appear here until fully paid.</p>';
+
+  // table
+  const catSel = $('#bkCat'), curCat = catSel.value;
+  catSel.innerHTML = '<option value="">All categories</option><optgroup label="Income">' + INCOME_CATS.map(c => `<option>${esc(c)}</option>`).join('') + '</optgroup><optgroup label="Expenses">' + EXPENSE_CATS.map(c => `<option>${esc(c)}</option>`).join('') + '</optgroup>';
+  catSel.value = curCat;
+  const q = bk.q.trim().toLowerCase();
+  const rows = inP.filter(t => (!bk.type || t.type === bk.type) && (!bk.cat || t.category === bk.cat) && (!q || [t.desc, t.ref, t.notes, custName(t), t.category, t.method].join(' ').toLowerCase().includes(q)))
+    .sort((a, b) => (b.date || '').localeCompare(a.date || '') || (b.createdAt || '').localeCompare(a.createdAt || ''));
+  $('#bkBody').innerHTML = rows.map(t => {
+    const d = t.docId && Store.documents.find(x => x.id === t.docId);
+    return `<tr>
+      <td class="readout whitespace-nowrap text-xs">${fmtDate(t.date)}</td>
+      <td><div class="font-medium">${esc(t.desc)}</div><div class="text-xs text-mute">${[t.ref ? 'Ref ' + esc(t.ref) : '', d ? 'for ' + esc(d.number) : ''].filter(Boolean).join(' · ')}</div></td>
+      <td><span class="pill text-mute">${esc(t.category)}</span></td>
+      <td class="text-mute">${esc(custName(t) || '—')}</td>
+      <td class="text-xs text-mute">${esc(t.method || '')}</td>
+      <td class="readout whitespace-nowrap text-right font-semibold ${t.type === 'income' ? 'text-mint' : 'text-rose'}">${t.type === 'income' ? '+' : '−'}${peso(t.amount)}</td>
+      <td class="whitespace-nowrap text-right"><button class="rounded-md px-2 py-1 text-xs text-mute hover:bg-ink hover:text-fog" data-tedit="${esc(t.id)}">Edit</button><button class="rounded-md px-2 py-1 text-xs text-rose hover:bg-ink" data-tdel="${esc(t.id)}">Delete</button></td></tr>`;
+  }).join('');
+  const shown = rows.reduce((s, t) => s + (t.type === 'income' ? 1 : -1) * (Number(t.amount) || 0), 0);
+  $('#bkShownCount').textContent = rows.length + ' transaction' + (rows.length === 1 ? '' : 's');
+  $('#bkShownTotal').textContent = (shown < 0 ? '−' : '') + peso(Math.abs(shown));
+  $('#bkShownTotal').className = 'readout text-right font-semibold ' + (shown >= 0 ? 'text-mint' : 'text-rose');
+  $('#bkEmpty').classList.toggle('hidden', rows.length > 0);
+}
+$('#bkPeriod').addEventListener('change', e => { bk.period = e.target.value; renderBooks(); });
+$('#bkSearch').addEventListener('input', e => { bk.q = e.target.value; renderBooks(); });
+$('#bkType').addEventListener('change', e => { bk.type = e.target.value; renderBooks(); });
+$('#bkCat').addEventListener('change', e => { bk.cat = e.target.value; renderBooks(); });
+$('#bkAr').addEventListener('click', e => { const b = e.target.closest('[data-pay]'); if (!b) return; const d = Store.documents.find(x => x.id === b.dataset.pay); if (d) openTxn(null, 'income', { docId: d.id, customerId: d.customerId, amount: docBalance(d), desc: 'Payment for ' + d.number, category: 'Organ / console sale' }); });
+$('#bkBody').addEventListener('click', e => {
+  const ed = e.target.closest('[data-tedit]'); if (ed) { const t = Store.transactions.find(x => x.id === ed.dataset.tedit); if (t) openTxn(t, t.type); return; }
+  const de = e.target.closest('[data-tdel]'); if (de) { const t = Store.transactions.find(x => x.id === de.dataset.tdel); if (t) confirmBox('Delete this transaction?', `${t.type === 'income' ? 'Income' : 'Expense'} of ${peso(t.amount)} on ${fmtDate(t.date)}: ${t.desc}`, 'Delete', async () => { try { await Store.deleteTxn(t.id); toast('Transaction deleted'); } catch (err) {} }); }
+});
+
+let txnEditing = null, txnType = 'income';
+function setTxnType(t, keepCat) {
+  txnType = t;
+  $$('.txType').forEach(b => { const on = b.dataset.t === t; b.className = 'txType btn !justify-center ' + (on ? (t === 'income' ? 'btn-primary' : '!bg-rose !text-ink') : 'text-mute hover:text-fog'); b.setAttribute('aria-checked', on); });
+  const cats = t === 'income' ? INCOME_CATS : EXPENSE_CATS, sel = $('#xCat'), prev = sel.value;
+  sel.innerHTML = cats.map(c => `<option>${esc(c)}</option>`).join(''); if (keepCat && cats.includes(prev)) sel.value = prev;
+  $('#txnTitle').textContent = (txnEditing ? 'Edit ' : 'Add ') + (t === 'income' ? 'income' : 'expense');
+  $('#xDoc').closest('div').style.display = t === 'income' ? '' : 'none';
+}
+$$('.txType').forEach(b => b.addEventListener('click', () => setTxnType(b.dataset.t)));
+function openTxn(t, type, prefill = {}) {
+  if (Store.readOnly) { toast('Read-only access'); return; }
+  txnEditing = t ? t.id : null; const f = $('#txnForm'); f.reset();
+  $$('.err', f).forEach(x => x.classList.add('hidden')); $$('.field', f).forEach(x => x.classList.remove('invalid'));
+  $('#xCust').innerHTML = '<option value="">— None —</option>' + [...Store.customers].sort((a, b) => (a.name || '').localeCompare(b.name || '')).map(c => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('');
+  const inv = Store.documents.filter(d => d.docType === 'invoice' || d.docType === 'proforma' || d.id === (t && t.docId) || d.id === prefill.docId);
+  $('#xDoc').innerHTML = '<option value="">— Not for an invoice —</option>' + inv.map(d => `<option value="${esc(d.id)}">${esc(d.number)} · ${esc(d.client && d.client.name || '')} · balance ${pesoShort(docBalance(d))}</option>`).join('');
+  setTxnType(type);
+  const v = { date: todayISO(), method: 'Bank transfer', ...(t || {}), ...prefill };
+  ['date', 'amount', 'desc', 'category', 'method', 'customerId', 'party', 'docId', 'ref', 'notes'].forEach(k => { if (v[k] != null && f.elements[k]) f.elements[k].value = v[k]; });
+  if (v.amount) f.elements.amount.value = Math.round(v.amount * 100) / 100;
+  openModal('txnModal');
+}
+$('#bkAddInc').addEventListener('click', () => openTxn(null, 'income'));
+$('#bkAddExp').addEventListener('click', () => openTxn(null, 'expense'));
+$('#xDoc').addEventListener('change', e => {
+  const d = Store.documents.find(x => x.id === e.target.value); if (!d) return; const f = $('#txnForm');
+  if (d.customerId) f.elements.customerId.value = d.customerId;
+  if (!f.elements.amount.value) f.elements.amount.value = Math.round(docBalance(d) * 100) / 100;
+  if (!f.elements.desc.value) f.elements.desc.value = 'Payment for ' + d.number;
+});
+function vTxn(el) {
+  let ok = true; const v = el.value.trim();
+  if (el.name === 'date') ok = /^\d{4}-\d{2}-\d{2}$/.test(v);
+  if (el.name === 'amount') ok = parseFloat(v) > 0;
+  if (el.name === 'desc') ok = v.length > 0;
+  el.classList.toggle('invalid', !ok); const err = el.parentElement.querySelector('.err'); if (err) err.classList.toggle('hidden', ok); return ok;
+}
+['date', 'amount', 'desc'].forEach(n => { const el = $('#txnForm').elements[n]; el.addEventListener('blur', () => vTxn(el)); el.addEventListener('input', () => { if (el.classList.contains('invalid')) vTxn(el); }); });
+$('#txnForm').addEventListener('submit', async e => {
+  e.preventDefault(); const f = e.target;
+  if (!['date', 'amount', 'desc'].map(n => vTxn(f.elements[n])).every(Boolean)) { f.querySelector('.invalid').focus(); return; }
+  const prev = txnEditing ? Store.transactions.find(x => x.id === txnEditing) : null;
+  const t = prev ? JSON.parse(JSON.stringify(prev)) : { id: uid() };
+  t.type = txnType;
+  ['date', 'desc', 'category', 'method', 'customerId', 'party', 'ref', 'notes'].forEach(k => t[k] = f.elements[k].value.trim());
+  t.amount = Math.round(parseFloat(f.elements.amount.value) * 100) / 100;
+  t.docId = txnType === 'income' ? f.elements.docId.value : '';
+  $('#txnSubmit').disabled = true;
+  try {
+    await Store.saveTxn(t);
+    if (!prev && t.docId) { // note the payment on the customer and mark fully paid invoices
+      const d = Store.documents.find(x => x.id === t.docId); const c = d && Store.customers.find(x => x.id === d.customerId);
+      if (c) { const n = JSON.parse(JSON.stringify(c)); n.activity = [{ t: new Date().toISOString(), text: `Payment received: ${peso(t.amount)} for ${d.number}${t.method ? ' via ' + t.method : ''}` }, ...(n.activity || [])].slice(0, 60); await Store.saveCustomer(n); }
+    }
+    closeModal($('#txnModal')); toast(prev ? 'Transaction updated' : (txnType === 'income' ? 'Income recorded' : 'Expense recorded'));
+  } catch (err) {}
+  $('#txnSubmit').disabled = false;
+});
+$('#bkExport').addEventListener('click', () => {
+  if (!Store.transactions.length) { toast('No transactions to export yet'); return; }
+  const [from, to, label] = periodRange(bk.period);
+  const rows = Store.transactions.filter(t => t.date >= from && t.date <= to).sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+  const q = v => { const s = String(v ?? ''); return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+  const csv = ['Date,Type,Category,Description,Customer/Supplier,Method,Reference,Invoice,Amount (PHP),Signed amount', ...rows.map(t => {
+    const d = t.docId && Store.documents.find(x => x.id === t.docId);
+    return [t.date, t.type, t.category, t.desc, custName(t), t.method, t.ref, d ? d.number : '', (Number(t.amount) || 0).toFixed(2), ((t.type === 'income' ? 1 : -1) * (Number(t.amount) || 0)).toFixed(2)].map(q).join(',');
+  })].join('\r\n');
+  saveFile('organworks-transactions-' + label.replace(/\s+/g, '-').toLowerCase() + '.csv', '﻿' + csv);
+});
+
+/* =========================================================
+   Arduino output checker
+   ========================================================= */
+const SAMPLE_SCAN = `ESP-ROM:esp32s3-20210327
+Build:Mar 27 2021
+rst:0x1 (POWERON),boot:0x8 (SPI_FAST_FLASH_BOOT)
+entry 0x403c98b4
+
+I2C scanner — SDA=GPIO8, SCL=GPIO9
+Scanning...
+I2C device found at address 0x20
+I2C device found at address 0x21
+Total: 2 device(s)
+done`;
+function checkOutput(txt) {
+  const t = txt || ''; const out = [];
+  const add = (level, title, body) => out.push({ level, title, body });
+  if (!t.trim()) return [{ level: 'info', title: 'Nothing to check', body: 'Paste the Serial Monitor or compiler output first.' }];
+  const has20 = /0x20\b/i.test(t), has21 = /0x21\b/i.test(t);
+  const found = (t.match(/0x[0-9a-f]{2}\b/gi) || []).map(x => x.toLowerCase()).filter(x => /found|device/i.test(t));
+  const total = (t.match(/Total:\s*(\d+)/i) || [])[1];
+  // upload / connection
+  if (/Failed to connect to ESP32|No serial data received|Wrong boot mode|A fatal error occurred/i.test(t)) add('err', 'Upload failed: the board is not in download mode', 'Hold BOOT, tap RESET, release BOOT, then upload again. Use a data-capable USB-C cable and the port labelled USB/UART that the IDE expects.');
+  if (/could not open port|Access is denied|Resource busy|Permission denied.*tty/i.test(t)) add('err', 'Port is busy', 'Close the Serial Monitor, GrandOrgue, this Pedal Lab tab or any other program using the port, then upload again.');
+  if (/Port monitor error|No such port|port .* not found|Serial port .* not found/i.test(t)) add('err', 'Port not found', 'After uploading TinyUSB firmware the port changes. Pick the new port under Tools → Port, or enter download mode (BOOT + RESET) to get the upload port back.');
+  // compile
+  const missing = t.match(/fatal error:\s*([\w\/\.]+\.h):\s*No such file or directory/i);
+  if (missing) {
+    const lib = { 'Adafruit_MCP23X17.h': 'Adafruit MCP23017 Arduino Library', 'Adafruit_TinyUSB.h': 'Adafruit TinyUSB Library', 'MIDI.h': 'MIDI Library by Francois Best / FortySevenEffects', 'Adafruit_BusIO_Register.h': 'Adafruit BusIO' }[missing[1].split('/').pop()];
+    add('err', 'Missing library: ' + missing[1], 'Install ' + (lib || 'the library that provides ' + missing[1]) + ' from Sketch → Include Library → Manage Libraries.');
+  }
+  const und = t.match(/'([\w:]+)' was not declared in this scope/);
+  if (und) add('err', 'Compile error: ' + und[1] + ' was not declared', /TinyUSB|usb_midi|Adafruit_USBD/i.test(und[1]) ? 'Set Tools → USB Mode to "USB-OTG (TinyUSB)" and make sure the Adafruit TinyUSB library is installed.' : 'Check spelling and that the right library is included at the top of the sketch.');
+  if (/multiple definition of .*(tud_|tinyusb|USB)/i.test(t) || /TinyUSB.*conflict|USBCDC.*redefinition/i.test(t)) add('err', 'TinyUSB conflict with the core USB stack', 'Set Tools → USB Mode: USB-OTG (TinyUSB) and USB CDC On Boot: Disabled, then rebuild.');
+  if (/Sketch too big|text section exceeds available space/i.test(t)) add('err', 'Sketch too big', 'Choose a larger partition scheme under Tools → Partition Scheme (for example "Huge APP").');
+  if (/exit status 1/i.test(t) && !out.some(o => o.level === 'err')) add('err', 'Compilation failed', 'Scroll up in the output to the first line containing "error:" and paste from there.');
+  // runtime
+  if (/Brownout detector was triggered/i.test(t)) add('err', 'Brownout: power is dropping', 'Use a better USB cable or a powered hub. Check that nothing on 3.3 V is shorted and the hall sensors share ground.');
+  if (/Guru Meditation|Backtrace:|abort\(\) was called/i.test(t)) add('err', 'Firmware crashed', 'Paste the Backtrace lines with the troubleshooting prompt. Common causes: Wire.begin() with the wrong pins or calling an MCP that failed to start.');
+  if (/MCP1 not found|MCP2 not found/i.test(t)) add('err', (t.match(/MCP\d not found[^\n]*/i) || ['MCP not found'])[0], 'The firmware could not talk to this expander. Run the I²C scanner and check its address pins.');
+  // scan results
+  if (/No I2C devices found|Total:\s*0\b/i.test(t)) add('err', 'No I²C devices found', 'Check SDA on GPIO8 and SCL on GPIO9 (not swapped), 3.3 V and ground on both MCP23017s, and that RESET (pin 18) is tied to 3.3 V. Add 4.7 kΩ pull-ups to 3.3 V on SDA and SCL if your boards have none.');
+  else if (has20 && has21) {
+    if (!total || total === '2') add('ok', 'Successful scan: both MCP23017s answer', 'MCP1 at 0x20 and MCP2 at 0x21. Move on to step 4 and upload the final firmware.');
+    else add('warn', 'Both MCPs found, plus ' + (Number(total) - 2) + ' other device(s)', 'Expected exactly 2. Another I²C device is on the bus; make sure its address is not 0x20 or 0x21.');
+  } else if (has20 && !has21 && /found|device/i.test(t)) add('warn', 'Only MCP1 (0x20) answers', 'MCP2 is missing. Its A0 pin must go to 3.3 V (A1, A2 to GND) to sit at 0x21. Check its power, RESET pin and the SDA/SCL daisy-chain.');
+  else if (has21 && !has20 && /found|device/i.test(t)) add('warn', 'Only MCP2 (0x21) answers', 'MCP1 is missing. Tie its A0, A1 and A2 pins to GND for address 0x20 and check its power and RESET pin.');
+  else if (/found at address|device\(s\)/i.test(t) && found.length) add('warn', 'Unexpected addresses: ' + Array.from(new Set(found)).join(', '), 'MCP23017s live at 0x20–0x27. If you see 0x22–0x27 the address pins are wired differently: adjust them or change the addresses in the firmware.');
+  // boot only
+  if (!out.length && /ESP-ROM|rst:0x|boot:0x|entry 0x/i.test(t)) add('warn', 'Only boot messages, no scan output', 'The board booted but printed nothing else. Enable Tools → USB CDC On Boot for the scanner, set the monitor to 115200 baud, then press RESET with the monitor open.');
+  if (/Hard resetting via RTS pin|Leaving\.\.\./i.test(t) && !out.some(o => o.level === 'err')) add('ok', 'Upload finished', 'The sketch was written to the board. Open the Serial Monitor (scanner) or the pedal tester (final firmware).');
+  if (/Sketch uses \d+ bytes/i.test(t) && !out.some(o => o.level === 'err')) add('ok', 'Compiles cleanly', (t.match(/Sketch uses[^\n]*/i) || [''])[0]);
+  if (!out.length) add('info', 'No known pattern found', 'Copy the troubleshooting prompt and paste it into Claude with a photo of the wiring.');
+  return out;
+}
+function renderCheck() {
+  const res = checkOutput($('#ardOut').value);
+  const sty = { ok: ['#5fd3b5', '✓'], warn: ['#f2b84b', '!'], err: ['#f07a6a', '✕'], info: ['#8ea6a1', 'i'] };
+  $('#ardResult').innerHTML = res.map(r => `<div class="flex gap-3 rounded-xl bg-ink px-4 py-3"><span class="readout mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px] font-bold text-ink" style="background:${sty[r.level][0]}">${sty[r.level][1]}</span><div><div class="font-semibold" style="color:${sty[r.level][0]}">${esc(r.title)}</div><div class="mt-0.5 text-mute">${esc(r.body)}</div></div></div>`).join('');
+  return res;
+}
+$('#ardCheck').addEventListener('click', renderCheck);
+$('#ardSample').addEventListener('click', () => { $('#ardOut').value = SAMPLE_SCAN; renderCheck(); });
+$('#ardClear').addEventListener('click', () => { $('#ardOut').value = ''; $('#ardResult').innerHTML = '<div class="rounded-xl bg-ink px-4 py-3 text-mute">Ready to check.</div>'; });
+$('#ardPrompt').addEventListener('click', () => {
+  const res = checkOutput($('#ardOut').value);
+  const prompt = `I'm building a 32-note MIDI organ pedalboard and need help troubleshooting.
+
+Hardware:
+- ESP32-S3 Dev Module
+- 2 × MCP23017 I/O expanders on I2C: SDA = GPIO8, SCL = GPIO9, 3.3 V to VCC and RESET, common ground
+- MCP1 at 0x20 (pins 0–15 → pedals 1–16), MCP2 at 0x21 (pins 0–15 → pedals 17–32)
+- Hall-effect switches, active LOW, internal pull-ups
+- 5-pin DIN MIDI out from GPIO17 (TX) through 220 Ω
+
+Firmware settings:
+- Scanner: USB CDC On Boot = Enabled, Serial Monitor 115200 baud
+- Final firmware: USB Mode = USB-OTG (TinyUSB), USB CDC On Boot = Disabled, Upload Mode = UART0 / Hardware CDC
+- Libraries: Adafruit MCP23017, Adafruit TinyUSB, MIDI Library
+- MIDI: USB channel 1, DIN channel 3, notes 36–67
+
+Automatic check said:
+${res.map(r => '- ' + r.title + ': ' + r.body).join('\n')}
+
+Output:
+\`\`\`
+${$('#ardOut').value.trim() || '(nothing pasted)'}
+\`\`\`
+
+What is wrong and what should I try next?`;
+  copyText(prompt);
+});
+
+/* =========================================================
+   Firmware library
+   ========================================================= */
+const CODE_SCAN = `// OrganWorks PH — I2C scanner for the ESP32-S3 pedalboard controller
+// Board: ESP32S3 Dev Module · Tools > USB CDC On Boot: Enabled · Serial Monitor: 115200
+// Expected result: devices at 0x20 (MCP1) and 0x21 (MCP2), Total: 2
+
+#include <Wire.h>
+
+#define SDA_PIN 8
+#define SCL_PIN 9
+
+void setup() {
+  Serial.begin(115200);
+  unsigned long start = millis();
+  while (!Serial && millis() - start < 3000) { delay(10); }   // wait up to 3 s for the monitor
+  Wire.begin(SDA_PIN, SCL_PIN);
+  Wire.setClock(100000);
+  Serial.println();
+  Serial.println("I2C scanner — SDA=GPIO8, SCL=GPIO9");
+}
+
+void loop() {
+  Serial.println("Scanning...");
+  uint8_t count = 0;
+  for (uint8_t addr = 1; addr < 127; addr++) {
+    Wire.beginTransmission(addr);
+    uint8_t err = Wire.endTransmission();
+    if (err == 0) {
+      Serial.printf("I2C device found at address 0x%02X", addr);
+      if (addr == 0x20) Serial.print("  (MCP1, pedals 1-16)");
+      if (addr == 0x21) Serial.print("  (MCP2, pedals 17-32)");
+      Serial.println();
+      count++;
+    } else if (err == 4) {
+      Serial.printf("Unknown error at address 0x%02X\\n", addr);
+    }
+  }
+  if (count == 0) Serial.println("No I2C devices found");
+  Serial.printf("Total: %u device(s)\\n", count);
+  Serial.println("done\\n");
+  delay(5000);
+}
+`;
+const CODE_FINAL = `// OrganWorks PH — 32-note MIDI pedalboard firmware for ESP32-S3
+// ---------------------------------------------------------------
+// Board:        ESP32S3 Dev Module
+// Tools menu:   USB Mode: USB-OTG (TinyUSB)
+//               USB CDC On Boot: Disabled
+//               Upload Mode: UART0 / Hardware CDC
+// Libraries:    Adafruit MCP23017 Arduino Library (+ Adafruit BusIO)
+//               Adafruit TinyUSB Library
+//               MIDI Library (FortySevenEffects)
+//
+// Wiring:       SDA = GPIO8, SCL = GPIO9, MCP23017 VCC + RESET = 3.3 V
+//               MCP1 at 0x20 -> pedals 1-16 (pins 0-15)
+//               MCP2 at 0x21 -> pedals 17-32 (pins 0-15)
+//               Hall switches active LOW (internal pull-ups enabled)
+//               5-pin DIN MIDI OUT: GPIO17 -> 220R -> DIN pin 5, 3.3 V -> 33R -> DIN pin 4
+// Output:       USB MIDI channel 1 and DIN MIDI channel 3, notes 36-67
+
+#include <Wire.h>
+#include <Adafruit_MCP23X17.h>
+#include <Adafruit_TinyUSB.h>
+#include <MIDI.h>
+
+#define SDA_PIN       8
+#define SCL_PIN       9
+#define DIN_TX_PIN    17
+#define DIN_RX_PIN    18      // not used, but the UART needs a pin
+#define LED_PIN       -1      // set to a GPIO to blink on every note, or leave -1
+
+#define MCP1_ADDR     0x20
+#define MCP2_ADDR     0x21
+
+#define NUM_PEDALS    32
+#define FIRST_NOTE    36      // pedal 1 = C2
+#define USB_CHANNEL   1
+#define DIN_CHANNEL   3
+#define VELOCITY      100
+#define DEBOUNCE_MS   8
+
+Adafruit_USBD_MIDI usb_midi;
+MIDI_CREATE_INSTANCE(Adafruit_USBD_MIDI, usb_midi, MIDIusb);
+MIDI_CREATE_INSTANCE(HardwareSerial, Serial1, MIDIdin);
+
+Adafruit_MCP23X17 mcp1;
+Adafruit_MCP23X17 mcp2;
+bool mcp1ok = false;
+bool mcp2ok = false;
+
+bool     pressed[NUM_PEDALS];
+bool     lastRaw[NUM_PEDALS];
+uint32_t changedAt[NUM_PEDALS];
+
+static void setupMcp(Adafruit_MCP23X17 &mcp) {
+  for (uint8_t pin = 0; pin < 16; pin++) mcp.pinMode(pin, INPUT_PULLUP);
+}
+
+static void sendNote(uint8_t pedal, bool on) {
+  uint8_t note = FIRST_NOTE + pedal;
+  if (on) {
+    MIDIusb.sendNoteOn(note, VELOCITY, USB_CHANNEL);
+    MIDIdin.sendNoteOn(note, VELOCITY, DIN_CHANNEL);
+  } else {
+    MIDIusb.sendNoteOff(note, 0, USB_CHANNEL);
+    MIDIdin.sendNoteOff(note, 0, DIN_CHANNEL);
+  }
+#if LED_PIN >= 0
+  digitalWrite(LED_PIN, on ? HIGH : LOW);
+#endif
+}
+
+void setup() {
+  // USB descriptors: this is the name GrandOrgue and the Pedal Lab will show
+  TinyUSBDevice.setManufacturerDescriptor("OrganWorks PH");
+  TinyUSBDevice.setProductDescriptor("OrganWorks Pedalboard");
+  if (!TinyUSBDevice.isInitialized()) TinyUSBDevice.begin(0);
+  usb_midi.setStringDescriptor("OrganWorks Pedalboard");
+
+  MIDIusb.begin(MIDI_CHANNEL_OMNI);
+  MIDIusb.turnThruOff();
+
+  Serial1.setPins(DIN_RX_PIN, DIN_TX_PIN);
+  MIDIdin.begin(MIDI_CHANNEL_OMNI);          // opens Serial1 at 31250 baud
+  MIDIdin.turnThruOff();
+
+  // Re-enumerate so the host sees the MIDI interface after a reset
+  if (TinyUSBDevice.mounted()) {
+    TinyUSBDevice.detach();
+    delay(10);
+    TinyUSBDevice.attach();
+  }
+
+#if LED_PIN >= 0
+  pinMode(LED_PIN, OUTPUT);
+#endif
+
+  Wire.begin(SDA_PIN, SCL_PIN);
+  Wire.setClock(400000);
+
+  mcp1ok = mcp1.begin_I2C(MCP1_ADDR, &Wire);
+  mcp2ok = mcp2.begin_I2C(MCP2_ADDR, &Wire);
+  if (mcp1ok) setupMcp(mcp1);
+  if (mcp2ok) setupMcp(mcp2);
+
+  for (uint8_t i = 0; i < NUM_PEDALS; i++) {
+    pressed[i] = false;
+    lastRaw[i] = false;
+    changedAt[i] = 0;
+  }
+}
+
+void loop() {
+#ifdef TINYUSB_NEED_POLLING_TASK
+  TinyUSBDevice.task();
+#endif
+
+  // Drain anything the host sends so the USB buffer never fills
+  while (MIDIusb.read()) {}
+
+  // Read all 16 pins of each expander in one I2C transaction
+  uint16_t bits1 = mcp1ok ? mcp1.readGPIOAB() : 0xFFFF;
+  uint16_t bits2 = mcp2ok ? mcp2.readGPIOAB() : 0xFFFF;
+  uint32_t now = millis();
+
+  for (uint8_t i = 0; i < NUM_PEDALS; i++) {
+    uint16_t bits = (i < 16) ? bits1 : bits2;
+    bool raw = !(bits & (1u << (i % 16)));       // active LOW: magnet present = pressed
+
+    if (raw != lastRaw[i]) {                     // input moved: restart the debounce timer
+      lastRaw[i] = raw;
+      changedAt[i] = now;
+    }
+    if (raw != pressed[i] && (now - changedAt[i]) >= DEBOUNCE_MS) {
+      pressed[i] = raw;
+      sendNote(i, raw);
+    }
+  }
+
+  // Retry a missing expander every 2 s (loose cable, late power-up)
+  static uint32_t lastRetry = 0;
+  if ((!mcp1ok || !mcp2ok) && now - lastRetry > 2000) {
+    lastRetry = now;
+    if (!mcp1ok && (mcp1ok = mcp1.begin_I2C(MCP1_ADDR, &Wire))) setupMcp(mcp1);
+    if (!mcp2ok && (mcp2ok = mcp2.begin_I2C(MCP2_ADDR, &Wire))) setupMcp(mcp2);
+  }
+}
+`;
+$('#code-scan').textContent = CODE_SCAN; $('#code-final').textContent = CODE_FINAL;
+$$('[data-copy]').forEach(b => b.addEventListener('click', () => copyText(document.getElementById(b.dataset.copy).textContent)));
+$$('[data-dl]').forEach(b => b.addEventListener('click', () => saveFile(b.dataset.name, document.getElementById(b.dataset.dl).textContent)));
+
+/* =========================================================
+   Boot
+   ========================================================= */
+Store.onChange(() => { renderCustomers(); renderDocList(); renderLinked(); renderBooks(); });
+fillBusiness();
+fillForm();
+Store.init();
+</script>
+</body>
+</html>
