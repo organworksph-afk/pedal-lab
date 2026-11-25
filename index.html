@@ -59,6 +59,15 @@ if (window.tailwind) tailwind.config = {
   .psharp.on { background: linear-gradient(#5fd3b5, #2f9e84); transform: translateY(3px); box-shadow: 0 1px 0 #000; }
   .pnum { position:absolute; bottom:6px; left:0; right:0; text-align:center; font: 600 10px 'JetBrains Mono', monospace; color:#4d473c; pointer-events:none; }
   .psharp .pnum { color:#9c9384; bottom:4px; }
+  .ppin { position:absolute; left:0; right:0; text-align:center; font: 600 9px/1.15 'JetBrains Mono', monospace; pointer-events:none; letter-spacing:-.02em; }
+  .pnat .ppin { bottom:22px; color:#2f6f60; }
+  .pnat .ppin.m2 { color:#9a6a0e; }
+  .psharp .ppin { bottom:18px; color:#5fd3b5; }
+  .psharp .ppin.m2 { color:#f2b84b; }
+  .ppin b { display:block; font-weight:700; font-size:8px; opacity:.8; }
+  .pnat.on .ppin, .pnat.on .pnum { color:#06201a; }
+  .chipband { position:relative; height:22px; margin-bottom:6px; }
+  .chipband div { position:absolute; top:0; bottom:0; border-radius:6px; font:600 10px 'JetBrains Mono',monospace; display:flex; align-items:center; justify-content:center; gap:.4rem; }
   .pnat.tested::after, .psharp.tested::after { content:''; position:absolute; top:6px; left:50%; width:6px; height:6px; margin-left:-3px; border-radius:99px; background:#2f9e84; }
   /* Stop tabs */
   .stop { position:relative; padding:.7rem .6rem .6rem; border-radius:.55rem; background:#efe6d2; color:#3b2f1f; font-family:'Fraunces',serif; font-weight:600; font-size:.85rem; text-align:center; border:1px solid #9b8a6b; cursor:pointer; transition: all .15s; line-height:1.15; }
@@ -933,16 +942,23 @@ renderStops(); setMode(Audio.mode);
    ========================================================= */
 const tested = new Set(ls.get('owph.tested', []));
 const keyEls = {};
+function keyTitle(n) { const m = mcpPin(pedalOf(n)); return `Pedal ${pedalOf(n)} · ${m.chip} (${m.addr}) ${m.name}, chip pin ${m.pkg} · note ${n} ${noteName(n)}`; }
+function pinLabel(n) { const m = mcpPin(pedalOf(n)); return `<span class="ppin ${m.chip === 'MCP2' ? 'm2' : ''}"><b>${m.chip === 'MCP1' ? 'M1' : 'M2'}</b>${m.name.replace('GP', '')}</span>`; }
 (function buildBoard() {
   const board = $('#pedalboard'); const naturals = [];
   for (let n = FIRST_NOTE; n < FIRST_NOTE + NUM_PEDALS; n++) if (!isSharp(n)) naturals.push(n);
   const w = 100 / naturals.length; let html = '';
-  naturals.forEach((n, i) => { html += `<div class="pnat" data-note="${n}" style="left:calc(${i * w}% + 2px);width:calc(${w}% - 4px)" role="button" aria-label="Pedal ${pedalOf(n)}, ${noteName(n)}"><span class="pnum">${pedalOf(n)}</span></div>`; });
+  naturals.forEach((n, i) => { html += `<div class="pnat" data-note="${n}" style="left:calc(${i * w}% + 2px);width:calc(${w}% - 4px)" role="button" title="${keyTitle(n)}" aria-label="Pedal ${pedalOf(n)}, ${noteName(n)}, ${keyTitle(n)}">${pinLabel(n)}<span class="pnum">${pedalOf(n)}</span></div>`; });
   for (let n = FIRST_NOTE; n < FIRST_NOTE + NUM_PEDALS; n++) if (isSharp(n)) {
     const idx = naturals.indexOf(n - 1) + 1;
-    html += `<div class="psharp" data-note="${n}" style="left:calc(${idx * w}% - ${w * 0.3}%);width:${w * 0.6}%" role="button" aria-label="Pedal ${pedalOf(n)}, ${noteName(n)}"><span class="pnum">${pedalOf(n)}</span></div>`;
+    html += `<div class="psharp" data-note="${n}" style="left:calc(${idx * w}% - ${w * 0.3}%);width:${w * 0.6}%" role="button" title="${keyTitle(n)}" aria-label="Pedal ${pedalOf(n)}, ${noteName(n)}, ${keyTitle(n)}">${pinLabel(n)}<span class="pnum">${pedalOf(n)}</span></div>`;
   }
   board.innerHTML = html;
+  // band showing which keys are on which MCP23017 (split between pedal 16 and 17)
+  const split = naturals.filter(n => pedalOf(n) <= 16).length * w;
+  const band = document.createElement('div'); band.className = 'chipband'; band.setAttribute('aria-hidden', 'true');
+  band.innerHTML = `<div style="left:2px;width:calc(${split}% - 4px);background:rgba(95,211,181,.12);color:#5fd3b5">MCP1 · 0x20 · pedals 1–16 · GPA0–GPB7</div><div style="left:calc(${split}% + 2px);right:2px;background:rgba(242,184,75,.12);color:#f2b84b">MCP2 · 0x21 · pedals 17–32 · GPA0–GPB7</div>`;
+  board.parentElement.insertBefore(band, board); band.classList.add('min-w-[760px]');
   $$('[data-note]', board).forEach(el => { keyEls[el.dataset.note] = el; if (tested.has(+el.dataset.note)) el.classList.add('tested'); });
   const held = new Map();
   board.addEventListener('pointerdown', e => {
